@@ -4,6 +4,8 @@ Rust rewrite of GM, an event-driven market intelligence platform for Indian equi
 
 This repo starts from the existing GM architecture but fixes the main replay gap immediately: the decision path is pure. It never reaches out to live prices or mutable services. Decisions are computed from normalized events plus frozen as-of facts: macro context, price bars/features, prediction records, and knowledge-graph modifiers.
 
+License: proprietary internal-use only. This is not open source.
+
 ## Workspace
 
 | Crate | Purpose |
