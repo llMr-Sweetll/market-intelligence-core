@@ -1,0 +1,10 @@
+/target/
+/.env
+/.env.local
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store
+coverage/
+lcov.info

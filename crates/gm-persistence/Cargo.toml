@@ -1,0 +1,13 @@
+[package]
+name = "gm-persistence"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+gm-domain = { path = "../gm-domain" }
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
