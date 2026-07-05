@@ -43,4 +43,4 @@ API:
 
 ## Current Status
 
-This is the first Rust cut: a compiling, tested domain and service skeleton with CI/CD, migrations, Docker, and docs. It is not yet full feature parity with the Python/Next implementation. The intended next work is to port ingestion adapters, execution adapters, replay parity, and then the dashboard.
+This is the first Rust cut: a compiling, tested domain and service skeleton with CI, release/CD, migrations, Docker, proprietary licensing, dependency audit, and docs. It is not yet full feature parity with the Python/Next implementation. The intended next work is to port ingestion adapters, execution adapters, replay parity, and then the dashboard.
