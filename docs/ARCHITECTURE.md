@@ -31,7 +31,7 @@ flowchart LR
 
 ## Core Rule
 
-The online decision path is pure. Network calls, stochastic calibration, LLM extraction, ingestion, and broker communication happen upstream or downstream. Their outputs are persisted as immutable facts before decision fusion reads them.
+The online decision path is pure. Network calls, stochastic calibration, entity extraction, ingestion, and broker communication happen upstream or downstream. Their outputs are persisted as immutable facts before decision fusion reads them.
 
 ## Crate Boundaries
 
