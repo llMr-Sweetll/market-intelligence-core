@@ -13,6 +13,39 @@ assert payload["status"] == "ok", payload
 assert payload["service"] == "gm-api", payload
 PY
 
+ready="$(curl -fsS "$BASE_URL/ready")"
+python3 - "$ready" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["status"] == "ready", payload
+assert payload["service"] == "gm-api", payload
+assert "persistence" in payload, payload
+PY
+
+version="$(curl -fsS "$BASE_URL/version")"
+python3 - "$version" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["service"] == "gm-api", payload
+assert payload["version"], payload
+assert payload["model_version"], payload
+PY
+
+openapi="$(curl -fsS "$BASE_URL/openapi.json")"
+python3 - "$openapi" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["openapi"] == "3.1.0", payload
+assert "/decide" in payload["paths"], payload
+assert "/ready" in payload["paths"], payload
+PY
+
 request='{
   "event": {
     "event_id": "norm-smoke-earnings",

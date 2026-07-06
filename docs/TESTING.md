@@ -35,6 +35,9 @@ make smoke-api
 The smoke test verifies:
 
 - `GET /health` returns `ok`.
+- `GET /ready` returns readiness and persistence status.
+- `GET /version` returns service and model versions.
+- `GET /openapi.json` exposes the contract paths.
 - `POST /decide` returns an executable BUY for a strong earnings event with an
   injected price.
 - Quantity, target, stop, and score are stable.
@@ -66,7 +69,6 @@ Current unit tests cover:
 
 ## What Still Needs Coverage
 
-- repository save/read integration tests against PostgreSQL
-- HTTP contract tests that run the server inside the test harness
+- repository read integration tests against PostgreSQL
 - replay tests that rebuild projections from append-only facts
 - broker execution state-machine tests

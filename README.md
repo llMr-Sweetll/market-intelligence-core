@@ -63,6 +63,9 @@ make verify-postgres
 ## API
 
 - `GET /health`
+- `GET /ready`
+- `GET /version`
+- `GET /openapi.json`
 - `GET /rules`
 - `POST /score`
 - `POST /decide`
@@ -72,6 +75,7 @@ make verify-postgres
 
 ## Documentation
 
+- [API](docs/API.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Algorithm](docs/ALGORITHM.md)
 - [Decision Model](docs/MODEL.md)
