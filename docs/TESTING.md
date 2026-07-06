@@ -66,9 +66,11 @@ Current unit tests cover:
 - event-study forward-return math
 - BUY/SELL/HOLD decision behavior
 - deterministic decision IDs
+- provider adapter fixtures for market data, events, filings, entity mapping,
+  payments, and paper execution
 
 ## What Still Needs Coverage
 
 - repository read integration tests against PostgreSQL
 - replay tests that rebuild projections from append-only facts
-- broker execution state-machine tests
+- live broker execution state-machine tests

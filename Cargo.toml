@@ -2,6 +2,7 @@
 members = [
     "crates/gm-api",
     "crates/gm-domain",
+    "crates/gm-integrations",
     "crates/gm-persistence",
     "crates/gm-worker",
 ]

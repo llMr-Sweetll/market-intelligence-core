@@ -4,16 +4,17 @@ Integrations collect facts. They do not decide actions directly.
 
 ## Adapter Traits
 
+The `gm-integrations` crate owns the adapter contracts and deterministic
+fixtures. The domain crate does not depend on providers.
+
 The integration layer should expose these boundaries:
 
 - `MarketDataProvider`
-- `NewsEventProvider`
+- `EventProvider`
 - `FilingProvider`
 - `EntityMappingProvider`
-- `GlobalEventProvider`
 - `PaymentProvider`
-- `BrokerReadOnlyProvider`
-- `PaperExecutionProvider`
+- `ExecutionProvider`
 
 Each adapter should report:
 
@@ -23,6 +24,8 @@ Each adapter should report:
 - last success
 - last error
 - rate-limit state
+- retry state
+- circuit-breaker state
 - credential status without exposing secrets
 
 ## First Providers
@@ -31,6 +34,9 @@ Each adapter should report:
 
 Required for all release tests. It should provide deterministic events, prices,
 filings, and payment webhook samples.
+
+Implemented fixtures cover market data, normalized events, filings, entity
+mapping, Razorpay-style test-mode checkout/webhook flow, and paper execution.
 
 ### GDELT
 
@@ -66,6 +72,8 @@ include:
 - manual enablement
 - tests proving disabled-by-default behavior
 
+The current paper execution provider rejects live orders by construction.
+
 ## Error Handling
 
 Adapters must classify errors:
@@ -85,4 +93,3 @@ provider state and continue to serve deterministic fixture workflows.
 
 Secrets live in environment variables or hosted secret stores only. Frontend code
 must never receive provider secrets.
-

@@ -36,6 +36,7 @@ read-only integrations, Razorpay test mode, and no live broker order placement.
 | Crate | Purpose |
 | --- | --- |
 | `gm-domain` | Pure domain logic: rules, classification, scoring, indicators, features, predictions, event studies, risk checks. |
+| `gm-integrations` | Provider traits and deterministic adapters for market data, events, filings, entity mapping, payments, and paper execution. |
 | `gm-api` | HTTP API over the domain core. |
 | `gm-persistence` | PostgreSQL repository and migration helpers. |
 | `gm-worker` | Operational commands such as migration checks and future batch jobs. |
