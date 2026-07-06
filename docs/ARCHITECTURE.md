@@ -30,7 +30,9 @@ flowchart LR
 
 - `gm-domain` contains pure functions and serializable data types.
 - `gm-api` converts HTTP requests into domain inputs and returns domain outputs.
-- `gm-persistence` owns database connection and migration helpers.
+- `gm-api` also performs optional audit persistence when `DATABASE_URL` is set.
+- `gm-persistence` owns database connection, migration helpers, and append-only
+  audit writes.
 - `gm-worker` owns operational commands and future batch jobs.
 
 ## Invariants
@@ -47,3 +49,7 @@ flowchart LR
 Development requires Rust and Cargo. PostgreSQL is only required for migration
 and persistence checks; the domain and API smoke tests can run without a
 database.
+
+When `DATABASE_URL` is configured for `gm-api`, startup applies migrations by
+default. `POST /decide` then stores the normalized event, rule traces, decision,
+and replay input snapshot. The domain crate remains database-free.

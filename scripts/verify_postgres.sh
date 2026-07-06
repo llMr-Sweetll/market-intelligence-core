@@ -21,8 +21,8 @@ assert_schema_with_psql() {
   table_count="$(psql "$database_url" -tAc \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")"
 
-  if [ "$table_count" -lt 8 ]; then
-    echo "Expected migrated schema to contain at least 8 tables, found $table_count" >&2
+  if [ "$table_count" -lt 9 ]; then
+    echo "Expected migrated schema to contain at least 9 tables, found $table_count" >&2
     exit 1
   fi
 
@@ -49,8 +49,8 @@ if command -v docker >/dev/null 2>&1; then
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
   )"
 
-  if [ "$table_count" -lt 8 ]; then
-    echo "Expected migrated schema to contain at least 8 tables, found $table_count" >&2
+  if [ "$table_count" -lt 9 ]; then
+    echo "Expected migrated schema to contain at least 9 tables, found $table_count" >&2
     exit 1
   fi
 

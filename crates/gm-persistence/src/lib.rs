@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use anyhow::Context;
-use gm_domain::{Decision, NormalizedEvent, PriceBar};
+use gm_domain::{Decision, DecisionInput, NormalizedEvent, PriceBar, scoring::ScoreOutput};
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct PgStore {
@@ -23,6 +24,11 @@ impl PgStore {
         &self.pool
     }
 
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn run_migrations(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let migrator = sqlx::migrate::Migrator::new(path.as_ref()).await?;
         migrator.run(&self.pool).await?;
@@ -30,6 +36,7 @@ impl PgStore {
     }
 
     pub async fn save_normalized_event(&self, event: &NormalizedEvent) -> anyhow::Result<()> {
+        self.ensure_causal_parent(event).await?;
         sqlx::query(
             r#"
             INSERT INTO normalized_events (
@@ -55,6 +62,100 @@ impl PgStore {
         .bind(&event.impact_category)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn ensure_causal_parent(&self, event: &NormalizedEvent) -> anyhow::Result<()> {
+        let Some(parent_id) = event.causal_parent_id.as_ref() else {
+            return Ok(());
+        };
+        let source = event.source.as_deref().unwrap_or("unknown");
+        let payload = serde_json::json!({
+            "event_id": parent_id,
+            "normalized_event_id": event.event_id,
+            "headline": event.headline,
+            "source": source,
+        });
+        let hash_seed = format!("raw-parent:{parent_id}");
+        let hash = Uuid::new_v5(&Uuid::NAMESPACE_URL, hash_seed.as_bytes()).to_string();
+
+        sqlx::query(
+            r#"
+            INSERT INTO raw_events (event_id, source, payload_json, hash)
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT (event_id) DO NOTHING
+            "#,
+        )
+        .bind(parent_id)
+        .bind(source)
+        .bind(payload)
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_score_projection(
+        &self,
+        event: &NormalizedEvent,
+        score: &ScoreOutput,
+    ) -> anyhow::Result<()> {
+        let event_class = serde_json::to_value(score.event_class)?
+            .as_str()
+            .unwrap_or("GENERAL")
+            .to_string();
+
+        sqlx::query(
+            r#"
+            UPDATE normalized_events
+            SET score = $3,
+                event_class = $4,
+                matched_rules = $5,
+                rule_results = $6
+            WHERE norm_event_id = $1 AND version = $2
+            "#,
+        )
+        .bind(&event.event_id)
+        .bind(event.version)
+        .bind(score.score)
+        .bind(event_class)
+        .bind(serde_json::to_value(&score.matched_rules)?)
+        .bind(serde_json::to_value(&score.rule_results)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_rule_traces(
+        &self,
+        event: &NormalizedEvent,
+        score: &ScoreOutput,
+    ) -> anyhow::Result<()> {
+        for result in &score.rule_results {
+            let trace_seed = format!("{}:{}:{}", event.event_id, event.version, result.rule_id);
+            let trace_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, trace_seed.as_bytes()).to_string();
+            sqlx::query(
+                r#"
+                INSERT INTO rule_traces (
+                    trace_id, event_id, event_version, rule_id, matched, weight,
+                    confidence, contribution, reason
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                ON CONFLICT (trace_id) DO NOTHING
+                "#,
+            )
+            .bind(trace_id)
+            .bind(&event.event_id)
+            .bind(event.version)
+            .bind(&result.rule_id)
+            .bind(result.matched)
+            .bind(result.weight)
+            .bind(result.confidence)
+            .bind(result.contribution)
+            .bind(&result.reason)
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(())
     }
 
@@ -114,6 +215,63 @@ impl PgStore {
         .bind(decision.execution_ready)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    pub async fn save_decision_input(
+        &self,
+        input: &DecisionInput,
+        decision: &Decision,
+        model_version: &str,
+    ) -> anyhow::Result<()> {
+        let event_json = serde_json::to_value(&input.event)?;
+        let score_json = serde_json::to_value(&input.score)?;
+        let facts_json = serde_json::to_value(&input.facts)?;
+        let thresholds_json = serde_json::to_value(input.thresholds)?;
+        let input_json = serde_json::json!({
+            "event": event_json,
+            "score": score_json,
+            "facts": facts_json,
+            "thresholds": thresholds_json,
+        });
+        let input_bytes = serde_json::to_vec(&input_json)?;
+        let input_hash = Uuid::new_v5(&Uuid::NAMESPACE_URL, &input_bytes).to_string();
+
+        sqlx::query(
+            r#"
+            INSERT INTO decision_inputs (
+                decision_id, model_version, input_hash, event_json, score_json,
+                facts_json, thresholds_json
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            ON CONFLICT (decision_id) DO NOTHING
+            "#,
+        )
+        .bind(&decision.decision_id)
+        .bind(model_version)
+        .bind(input_hash)
+        .bind(event_json)
+        .bind(score_json)
+        .bind(facts_json)
+        .bind(thresholds_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_decision_audit(
+        &self,
+        input: &DecisionInput,
+        decision: &Decision,
+        model_version: &str,
+    ) -> anyhow::Result<()> {
+        self.save_normalized_event(&input.event).await?;
+        self.save_score_projection(&input.event, &input.score)
+            .await?;
+        self.save_rule_traces(&input.event, &input.score).await?;
+        self.save_decision(decision).await?;
+        self.save_decision_input(input, decision, model_version)
+            .await?;
         Ok(())
     }
 }
