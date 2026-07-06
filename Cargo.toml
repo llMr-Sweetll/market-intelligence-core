@@ -12,6 +12,7 @@ edition = "2024"
 rust-version = "1.96"
 authors = ["Chandrashekhar Hegde <hegdechandrashekhar16@gmail.com>"]
 repository = "https://github.com/llMr-Sweetll/market-intelligence-core"
+license-file = "LICENSE"
 publish = false
 
 [workspace.dependencies]
