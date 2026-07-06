@@ -1,0 +1,33 @@
+name: Integration request
+description: Request or design a provider adapter.
+title: "Integration: "
+labels: ["area:integrations"]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: Provider or data source name.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Integration type
+      options:
+        - Market data
+        - News and events
+        - Filings
+        - Entity mapping
+        - Broker read-only
+        - Paper execution
+        - Payments
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Authentication, limits, data shape, and test-mode availability.
+    validations:
+      required: true

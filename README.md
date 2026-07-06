@@ -8,7 +8,8 @@ clock, or generates random identifiers. Every decision is computed from explicit
 inputs: a normalized event, rule definitions, macro context, price facts,
 technical features, prediction records, and bounded relationship modifiers.
 
-License: proprietary internal-use only. This repository is not open source.
+License: PolyForm Noncommercial 1.0.0. This repository is source-available for
+noncommercial use and is not open-source licensed.
 
 ## What Works Now
 
@@ -23,6 +24,12 @@ License: proprietary internal-use only. This repository is not open source.
 - SQLx/PostgreSQL migrations for append-only market, feature, prediction,
   decision, and trace tables.
 - Local scripts for API smoke testing and PostgreSQL migration verification.
+
+## Release Status
+
+The current target is `v0.1.0-mv`: a public-ready source-available release with
+an operator UI, evidence-backed model direction, deterministic fixtures, mock or
+read-only integrations, Razorpay test mode, and no live broker order placement.
 
 ## Workspace
 
@@ -67,6 +74,13 @@ make verify-postgres
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Algorithm](docs/ALGORITHM.md)
+- [Decision Model](docs/MODEL.md)
+- [UI/UX](docs/UI_UX.md)
+- [Knowledge Base](docs/KNOWLEDGE_BASE.md)
+- [Integrations](docs/INTEGRATIONS.md)
+- [Payments](docs/PAYMENTS.md)
 - [Testing](docs/TESTING.md)
 - [Debugging](docs/DEBUGGING.md)
+- [Release Plan](docs/RELEASE_PLAN.md)
+- [Public Readiness](docs/PUBLIC_READINESS.md)
 - [Roadmap](docs/ROADMAP.md)

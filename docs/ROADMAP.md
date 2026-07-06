@@ -18,6 +18,10 @@ sources or execution adapters.
 
 ## Next
 
+- Build the operator UI and Decision Workbench.
+- Add the knowledge-base ontology for global, political, regulatory, medical,
+  company-structure, conflict, and market events.
+- Replace direct threshold-like behavior with evidence-backed impact estimates.
 - Persist API decisions and rule traces through repository interfaces.
 - Add fixture-based HTTP contract tests.
 - Add market-data ingestion jobs with source-level circuit breakers.

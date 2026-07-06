@@ -1,0 +1,27 @@
+name: Model behavior
+description: Report or propose decision-model behavior.
+title: "Model: "
+labels: ["area:model"]
+body:
+  - type: textarea
+    id: event
+    attributes:
+      label: Event and facts
+      description: Include a minimal normalized event and as-of facts, with secrets removed.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current decision
+      description: What action, confidence, and explanation does the system return?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected decision
+      description: What should change, and what evidence supports that change?
+    validations:
+      required: true
+
