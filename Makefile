@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test audit check run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
+.PHONY: fmt fmt-check clippy test audit check web-install web-build web-test web-check check-all run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
 
 fmt:
 	cargo fmt --all
@@ -16,6 +16,20 @@ audit:
 	cargo audit --deny warnings
 
 check: fmt-check clippy test audit
+
+web-install:
+	npm ci --prefix apps/web
+
+web-build:
+	npm run build --prefix apps/web
+
+web-test:
+	npm run test --prefix apps/web
+
+web-check:
+	npm run check --prefix apps/web
+
+check-all: check web-check
 
 run-api:
 	cargo run -p gm-api -- --host $${GM_HOST:-127.0.0.1} --port $${GM_PORT:-8000}

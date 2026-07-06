@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Market Intelligence">
+  <rect width="64" height="64" rx="10" fill="#202423"/>
+  <path d="M14 43h36" stroke="#a9f0df" stroke-width="4" stroke-linecap="round"/>
+  <path d="M17 40l9-10 8 5 13-16" fill="none" stroke="#a9f0df" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="47" cy="19" r="4" fill="#f0b36a"/>
+</svg>
+
