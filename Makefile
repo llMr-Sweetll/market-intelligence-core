@@ -1,7 +1,10 @@
-.PHONY: fmt clippy test check run-api run-worker docker-up docker-down migrate
+.PHONY: fmt fmt-check clippy test audit check run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
 
 fmt:
 	cargo fmt --all
+
+fmt-check:
+	cargo fmt --all -- --check
 
 clippy:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -9,7 +12,10 @@ clippy:
 test:
 	cargo test --workspace --all-features
 
-check: fmt clippy test
+audit:
+	cargo audit --deny warnings
+
+check: fmt-check clippy test audit
 
 run-api:
 	cargo run -p gm-api -- --host $${GM_HOST:-127.0.0.1} --port $${GM_PORT:-8000}
@@ -24,4 +30,10 @@ docker-down:
 	docker compose -f infra/docker-compose.yml down
 
 migrate:
-	sqlx migrate run --source migrations
+	cargo run -p gm-worker -- migrate --database-url $${DATABASE_URL:-postgres://gm:gm@localhost:5432/gm} --migrations migrations
+
+smoke-api:
+	scripts/smoke_api.sh
+
+verify-postgres:
+	scripts/verify_postgres.sh

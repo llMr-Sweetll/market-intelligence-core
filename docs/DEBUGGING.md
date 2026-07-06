@@ -1,26 +1,51 @@
 # Debugging
 
-## Local Checks
+## API
 
 ```bash
 RUST_LOG=debug make run-api
-curl http://localhost:8000/health
+curl http://127.0.0.1:8000/health
 ```
 
-## Useful Environment
+Run the API smoke test:
 
-- `RUST_LOG=gm_api=debug,gm_domain=debug,tower_http=debug`
-- `DATABASE_URL=postgres://gm:gm@localhost:5432/gm`
-- `REDIS_URL=redis://localhost:6379/0`
+```bash
+make smoke-api
+```
 
-## Failure Triage
+If the API response changes, capture the JSON request and reproduce it through
+`gm-domain` tests before changing HTTP code.
 
-- If scoring changes, inspect rule contributions before decision fusion.
-- If replay diverges, compare frozen as-of facts before comparing final decisions.
-- If API output changes, serialize the domain input and run the same input through `gm-domain` unit tests.
-- If database state diverges, rebuild projections from append-only ledgers and diff projection rows.
+## Database
 
-## Observability Roadmap
+```bash
+make verify-postgres
+```
 
-- Add Prometheus metrics for ingestion lag, scoring latency, decision counts, rejected risk checks, broker acknowledgements, and replay parity failures.
-- Add structured audit IDs across raw event, normalized event, decision, order, and fill.
+If migration fails:
+
+- check `DATABASE_URL`
+- if using Docker, confirm Docker is running and inspect `docker compose -f infra/docker-compose.yml logs postgres`
+- if Docker is not installed, confirm `initdb`, `pg_ctl`, `createdb`, and `psql` are on PATH
+- rerun `cargo run -p gm-worker -- migrate --database-url "$DATABASE_URL" --migrations migrations`
+
+## Decision Behavior
+
+When a decision looks wrong, inspect inputs in this order:
+
+1. matched rules and rule score
+2. macro score
+3. feature signal
+4. prediction signal
+5. relationship modifier
+6. entry price availability
+
+No executable BUY/SELL should be emitted without an entry price.
+
+## Logs
+
+Useful log settings:
+
+```bash
+RUST_LOG=gm_api=debug,gm_worker=debug,gm_domain=debug,tower_http=debug
+```

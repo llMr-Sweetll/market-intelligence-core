@@ -1,30 +1,59 @@
-# GM-rs
+# Market Intelligence Core
 
-Rust rewrite of GM, an event-driven market intelligence platform for Indian equities.
+Market Intelligence Core is a Rust service for turning market events and
+as-of market facts into deterministic, explainable trading decisions.
 
-This repo starts from the existing GM architecture but fixes the main replay gap immediately: the decision path is pure. It never reaches out to live prices or mutable services. Decisions are computed from normalized events plus frozen as-of facts: macro context, price bars/features, prediction records, and knowledge-graph modifiers.
+The core rule is simple: the decision path never calls live services, reads the
+clock, or generates random identifiers. Every decision is computed from explicit
+inputs: a normalized event, rule definitions, macro context, price facts,
+technical features, prediction records, and bounded relationship modifiers.
 
-License: proprietary internal-use only. This is not open source.
+License: proprietary internal-use only. This repository is not open source.
+
+## What Works Now
+
+- Deterministic event scoring and event classification.
+- BUY/SELL/HOLD decision generation from frozen as-of facts.
+- Technical indicators: returns, SMA, EMA, RSI, ATR, volatility, drawdown,
+  z-score, and beta.
+- Feature-vector calculation with no look-ahead beyond the supplied as-of date.
+- GBM plus flow-adjusted return prediction with deterministic quantiles.
+- Event-study calibration helpers for forward and abnormal returns.
+- Axum HTTP API for scoring, decisions, features, prediction, and macro context.
+- SQLx/PostgreSQL migrations for append-only market, feature, prediction,
+  decision, and trace tables.
+- Local scripts for API smoke testing and PostgreSQL migration verification.
 
 ## Workspace
 
 | Crate | Purpose |
 | --- | --- |
-| `gm-domain` | Deterministic business core: rules, classification, scoring, quant features, prediction, event-study calibration, decision fusion. |
-| `gm-api` | Axum HTTP API over the domain core. |
-| `gm-persistence` | SQLx/Postgres repositories and migrations for append-only ledgers. |
-| `gm-worker` | Batch/offline jobs shell for ingestion, calibration, prediction, and replay jobs. |
+| `gm-domain` | Pure domain logic: rules, classification, scoring, indicators, features, predictions, event studies, risk checks. |
+| `gm-api` | HTTP API over the domain core. |
+| `gm-persistence` | PostgreSQL repository and migration helpers. |
+| `gm-worker` | Operational commands such as migration checks and future batch jobs. |
 
 ## Quick Start
 
 ```bash
 cp .env.example .env
-make docker-up
-make test
+make check
 make run-api
 ```
 
-API:
+In another terminal:
+
+```bash
+make smoke-api
+```
+
+For PostgreSQL migration verification:
+
+```bash
+make verify-postgres
+```
+
+## API
 
 - `GET /health`
 - `GET /rules`
@@ -32,15 +61,12 @@ API:
 - `POST /decide`
 - `POST /quant/features`
 - `POST /predict/gbm`
+- `POST /macro/context`
 
-## Design Docs
+## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Algorithm](docs/ALGORITHM.md)
-- [Migration Plan](docs/MIGRATION_PLAN.md)
 - [Testing](docs/TESTING.md)
 - [Debugging](docs/DEBUGGING.md)
-
-## Current Status
-
-This is the first Rust cut: a compiling, tested domain and service skeleton with CI, release/CD, migrations, Docker, proprietary licensing, dependency audit, and docs. It is not yet full feature parity with the Python/Next implementation. The intended next work is to port ingestion adapters, execution adapters, replay parity, and then the dashboard.
+- [Roadmap](docs/ROADMAP.md)

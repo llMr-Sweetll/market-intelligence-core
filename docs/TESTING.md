@@ -1,37 +1,72 @@
 # Testing
 
-## Test Pyramid
+Testing focuses on proving that the domain math is deterministic and that the
+runtime paths work locally.
 
-- Unit tests in `gm-domain` for every pure algorithm.
-- Repository tests in `gm-persistence` against disposable Postgres.
-- HTTP contract tests for `gm-api`.
-- Replay parity tests using frozen event/fact fixtures from the Python repo.
-- End-to-end paper-trading tests after execution adapters are ported.
+## Local Gates
 
-## Required Gates
+```bash
+make check
+```
+
+This runs:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo doc --workspace --no-deps
+cargo audit --deny warnings
 ```
 
-## Determinism Tests
+## API Smoke Test
 
-- Same event + same registry returns identical score output.
-- Same price bars + same as-of date returns identical features.
-- Same prices + same flow input returns identical prediction.
-- Same decision input returns byte-equivalent decision JSON.
-- Replay must never touch production storage.
+Start the API:
 
-## Future Golden Fixtures
+```bash
+make run-api
+```
 
-Use the Python repo tests as behavior fixtures, then add stricter Rust fixtures:
+In another terminal:
 
-- classification edge cases
-- keyword word-boundary cases
-- CAR calibration samples
-- RSI/ATR/EMA golden values
-- GBM quantiles
-- broker state machine transitions
+```bash
+make smoke-api
+```
+
+The smoke test verifies:
+
+- `GET /health` returns `ok`.
+- `POST /decide` returns an executable BUY for a strong earnings event with an
+  injected price.
+- Quantity, target, stop, and score are stable.
+
+## PostgreSQL Migration Check
+
+```bash
+make verify-postgres
+```
+
+This starts local PostgreSQL through Docker Compose when Docker is available.
+When Docker is not installed and `DATABASE_URL` is not set, it starts a
+temporary local PostgreSQL cluster, applies SQLx migrations through `gm-worker`,
+and checks that the expected schema exists.
+
+## Domain Coverage
+
+Current unit tests cover:
+
+- keyword word-boundary matching
+- event classification
+- macro normalization and sector weighting
+- indicators and feature as-of cutoffs
+- GBM quantile determinism
+- flow adjustment caps
+- event-study forward-return math
+- BUY/SELL/HOLD decision behavior
+- deterministic decision IDs
+
+## What Still Needs Coverage
+
+- repository save/read integration tests against PostgreSQL
+- HTTP contract tests that run the server inside the test harness
+- replay tests that rebuild projections from append-only facts
+- broker execution state-machine tests

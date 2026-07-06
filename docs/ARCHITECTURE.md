@@ -1,49 +1,49 @@
 # Architecture
 
-## Target Stack
+Market Intelligence Core is split into a pure domain layer and thin operational
+layers around it. This keeps decision behavior testable and replayable.
+
+## Stack
 
 - Rust 2024 workspace.
-- Axum + Tokio for HTTP and async runtime.
-- SQLx + PostgreSQL for append-only facts and derived projections.
-- Redis for optional queue/cache coordination.
-- Tower HTTP + tracing for request logging.
-- Docker Compose for local Postgres/Redis.
-- GitHub Actions for format, lint, tests, docs, security audit, and image build.
+- Axum and Tokio for HTTP.
+- SQLx and PostgreSQL for append-only facts.
+- Docker Compose or local PostgreSQL tools for migration verification.
+- Minimal CI for format, lint, tests, and dependency audit.
 
 ## System Shape
 
 ```mermaid
 flowchart LR
-    Sources["NSE/BSE/Macro/Broker Sources"] --> Worker["gm-worker ingestion jobs"]
-    Worker --> Raw["raw_events append-only"]
-    Raw --> Normalize["normalization"]
-    Normalize --> Norm["normalized_events append-only"]
-    Norm --> Domain["gm-domain pure scoring"]
-    Facts["PriceBar / FeatureSnapshot / PredictionRecord / KG as-of facts"] --> Domain
-    Macro["MacroSignal ledger"] --> Domain
-    Domain --> Decisions["decisions append-only"]
-    Decisions --> Risk["risk evaluation"]
-    Risk --> Orders["orders projection"]
-    Orders --> Feedback["execution_feedback append-only"]
-    API["gm-api"] --> Domain
-    API --> Decisions
+    Source["Market / Macro / Broker Inputs"] --> Normalize["Normalize"]
+    Normalize --> Event["NormalizedEvent"]
+    Event --> Domain["Pure Domain Core"]
+    Facts["As-Of Facts: PriceBar / FeatureVector / PredictionRecord / MacroContext"] --> Domain
+    Domain --> Decision["Decision"]
+    Decision --> Risk["Risk Check"]
+    Risk --> Execution["Execution Adapter"]
+    API["HTTP API"] --> Domain
+    Worker["Worker Commands"] --> Storage["PostgreSQL"]
 ```
 
-## Core Rule
+## Boundaries
 
-The online decision path is pure. Network calls, stochastic calibration, entity extraction, ingestion, and broker communication happen upstream or downstream. Their outputs are persisted as immutable facts before decision fusion reads them.
+- `gm-domain` contains pure functions and serializable data types.
+- `gm-api` converts HTTP requests into domain inputs and returns domain outputs.
+- `gm-persistence` owns database connection and migration helpers.
+- `gm-worker` owns operational commands and future batch jobs.
 
-## Crate Boundaries
+## Invariants
 
-- `gm-domain` has no database, HTTP, filesystem, environment, or clock dependency in scoring functions.
-- `gm-api` translates HTTP JSON into domain inputs and returns domain outputs.
-- `gm-persistence` owns SQL and migration interaction only.
-- `gm-worker` owns long-running jobs and future scheduler/orchestration.
+- Scoring and decision functions do not call networks or databases.
+- Scoring and decision functions do not read wall-clock time.
+- Decision IDs are deterministic for the same event, facts, score, and action.
+- Price is always an injected as-of fact.
+- Derived facts are written upstream, then passed into the decision path.
+- Database tables that represent facts are append-only by design.
 
-## Better Than The Original
+## Minimal Runtime
 
-- Price is an injected as-of fact, not a live call hidden inside `decide`.
-- Quant features and prediction are typed domain contracts.
-- Event-study calibration is a first-class pure module.
-- CI treats formatting, linting, tests, docs, security, and image build as standard gates.
-- Persistence starts with append-only table design instead of retrofitting invariants later.
+Development requires Rust and Cargo. PostgreSQL is only required for migration
+and persistence checks; the domain and API smoke tests can run without a
+database.

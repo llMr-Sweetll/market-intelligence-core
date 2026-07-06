@@ -30,8 +30,8 @@ pub struct DecisionThresholds {
 impl Default for DecisionThresholds {
     fn default() -> Self {
         Self {
-            buy_threshold: 0.75,
-            sell_threshold: -0.75,
+            buy_threshold: 0.70,
+            sell_threshold: -0.70,
             max_position_size: 0.05,
             min_position_size: 0.02,
             portfolio_capital: 1_000_000.0,
@@ -101,13 +101,14 @@ pub fn decide(input: DecisionInput) -> Decision {
         1.0,
     ));
 
-    let mut action = if combined_score >= input.thresholds.buy_threshold {
+    let intended_action = if combined_score >= input.thresholds.buy_threshold {
         Action::Buy
     } else if combined_score <= input.thresholds.sell_threshold {
         Action::Sell
     } else {
         Action::Hold
     };
+    let mut action = intended_action;
 
     let mut confidence = if action == Action::Hold {
         0.0
@@ -128,6 +129,8 @@ pub fn decide(input: DecisionInput) -> Decision {
     let mut timing = None;
     let mut execution_ready = false;
 
+    let mut blocked_by_missing_price = false;
+
     if matches!(action, Action::Buy | Action::Sell) {
         if let Some(entry_price) = input.facts.entry_price {
             let quantity_value =
@@ -142,6 +145,7 @@ pub fn decide(input: DecisionInput) -> Decision {
             action = Action::Hold;
             confidence = 0.0;
             position_size = 0.0;
+            blocked_by_missing_price = true;
         }
     }
 
@@ -155,10 +159,18 @@ pub fn decide(input: DecisionInput) -> Decision {
         target_price,
         stop_loss,
         matched_rules: &input.score.matched_rules,
+        blocked_by_missing_price,
     });
+    let decision_id = deterministic_decision_id(
+        &input.event,
+        action,
+        combined_score,
+        input.facts.entry_price,
+        &input.score.matched_rules,
+    );
 
     Decision {
-        decision_id: Uuid::new_v4().to_string(),
+        decision_id,
         parent_event_id: input.event.event_id,
         parent_event_version: input.event.version,
         action,
@@ -239,13 +251,14 @@ struct ThesisInput<'a> {
     target_price: Option<f64>,
     stop_loss: Option<f64>,
     matched_rules: &'a [String],
+    blocked_by_missing_price: bool,
 }
 
 fn thesis(input: ThesisInput<'_>) -> String {
     let symbol_text = input.symbol.unwrap_or("instrument");
-    if input.action == Action::Hold && input.entry_price.is_none() && input.score.abs() >= 0.75 {
+    if input.blocked_by_missing_price {
         return format!(
-            "Signal crossed threshold for {symbol_text}, but no frozen as-of price was supplied; holding to preserve replay determinism."
+            "Signal crossed the action threshold for {symbol_text}, but no as-of price was supplied; holding until an executable price fact is available."
         );
     }
 
@@ -276,6 +289,25 @@ fn thesis(input: ThesisInput<'_>) -> String {
         input.action.as_str(),
         input.score
     )
+}
+
+fn deterministic_decision_id(
+    event: &NormalizedEvent,
+    action: Action,
+    score: f64,
+    entry_price: Option<f64>,
+    matched_rules: &[String],
+) -> String {
+    let seed = format!(
+        "{}:{}:{}:{:.4}:{:?}:{}",
+        event.event_id,
+        event.version,
+        action.as_str(),
+        score,
+        entry_price.map(round2),
+        matched_rules.join(",")
+    );
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes()).to_string()
 }
 
 #[cfg(test)]
@@ -330,6 +362,28 @@ mod tests {
     }
 
     #[test]
+    fn earnings_beat_with_price_is_actionable() {
+        let registry = RuleRegistry::builtin();
+        let event = event("Quarterly earnings beat estimates");
+        let score = score_event(&event, &registry);
+
+        let decision = decide(DecisionInput {
+            event,
+            score,
+            facts: AsOfFacts {
+                entry_price: Some(1000.0),
+                exchange: Some("NSE".to_string()),
+                ..AsOfFacts::default()
+            },
+            thresholds: DecisionThresholds::default(),
+        });
+
+        assert_eq!(decision.action, Action::Buy);
+        assert_eq!(decision.quantity, Some(20));
+        assert!(decision.execution_ready);
+    }
+
+    #[test]
     fn decide_uses_injected_price_and_atr() {
         let registry = RuleRegistry::builtin();
         let event = event("Quarterly earnings beat estimates");
@@ -369,6 +423,52 @@ mod tests {
         assert_eq!(decision.quantity, Some(20));
         assert_eq!(decision.target_price, Some(1040.0));
         assert_eq!(decision.stop_loss, Some(976.0));
+        assert!(decision.execution_ready);
+    }
+
+    #[test]
+    fn decide_is_deterministic_including_id() {
+        let registry = RuleRegistry::builtin();
+        let event = event("Quarterly earnings beat estimates");
+        let score = score_event(&event, &registry);
+        let input = DecisionInput {
+            event,
+            score,
+            facts: AsOfFacts {
+                entry_price: Some(1000.0),
+                exchange: Some("NSE".to_string()),
+                ..AsOfFacts::default()
+            },
+            thresholds: DecisionThresholds::default(),
+        };
+
+        let one = decide(input.clone());
+        let two = decide(input);
+
+        assert_eq!(one, two);
+        assert_eq!(one.action, Action::Buy);
+    }
+
+    #[test]
+    fn severe_negative_event_with_price_is_actionable_sell() {
+        let registry = RuleRegistry::builtin();
+        let mut event = event("Insider trading investigation");
+        event.body = "Front running and price manipulation investigation opened.".to_string();
+        let score = score_event(&event, &registry);
+
+        let decision = decide(DecisionInput {
+            event,
+            score,
+            facts: AsOfFacts {
+                entry_price: Some(1000.0),
+                exchange: Some("NSE".to_string()),
+                ..AsOfFacts::default()
+            },
+            thresholds: DecisionThresholds::default(),
+        });
+
+        assert_eq!(decision.action, Action::Sell);
+        assert_eq!(decision.quantity, Some(20));
         assert!(decision.execution_ready);
     }
 }
