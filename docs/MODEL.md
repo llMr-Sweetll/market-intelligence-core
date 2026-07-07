@@ -117,7 +117,7 @@ flows without live orders.
 
 ## Output Contract
 
-Every decision should include:
+Every decision includes:
 
 - decision ID
 - model version
@@ -133,6 +133,11 @@ Every decision should include:
 - explanation
 - execution readiness
 
+The current implementation writes this information directly into the domain
+`Decision` response. The structured explanation includes pipeline stages,
+entity resolution, evidence items, impact estimate, gates, bounded utilities for
+BUY/SELL/HOLD/PAPER, missing facts, and a summary.
+
 ## Release Gates
 
 `v0.1.0` should prove:
@@ -143,4 +148,3 @@ Every decision should include:
 - event-study calculations on fixtures
 - confidence changes when evidence quality changes
 - no live broker order path is enabled
-

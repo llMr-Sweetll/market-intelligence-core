@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::{
     context::{MacroContext, clamp, round2, round4},
     features::FeatureVector,
+    model::{DECISION_MODEL_VERSION, EventStudyEvidence, build_model_report},
     rules::{RuleRegistry, RuleResult},
     stochastic::PredictionRecord,
     taxonomy::{EventClass, classify},
@@ -46,6 +47,7 @@ pub struct AsOfFacts {
     pub exchange: Option<String>,
     pub features: Option<FeatureVector>,
     pub prediction: Option<PredictionRecord>,
+    pub event_study: Option<EventStudyEvidence>,
     pub kg_modifier: f64,
 }
 
@@ -101,19 +103,14 @@ pub fn decide(input: DecisionInput) -> Decision {
         1.0,
     ));
 
-    let intended_action = if combined_score >= input.thresholds.buy_threshold {
-        Action::Buy
-    } else if combined_score <= input.thresholds.sell_threshold {
-        Action::Sell
-    } else {
-        Action::Hold
-    };
+    let model_report = build_model_report(&input, combined_score);
+    let intended_action = model_report.recommended_action;
     let mut action = intended_action;
 
     let mut confidence = if action == Action::Hold {
         0.0
     } else {
-        combined_score.abs()
+        model_report.confidence
     };
     let mut position_size = if action == Action::Hold {
         0.0
@@ -147,6 +144,12 @@ pub fn decide(input: DecisionInput) -> Decision {
             position_size = 0.0;
             blocked_by_missing_price = true;
         }
+    } else if intended_action == Action::Hold && input.facts.entry_price.is_none() {
+        blocked_by_missing_price = input.score.score.abs()
+            >= input
+                .thresholds
+                .buy_threshold
+                .min(input.thresholds.sell_threshold.abs());
     }
 
     let reasons = serde_json::to_value(&input.score.rule_results).unwrap_or(serde_json::json!([]));
@@ -161,6 +164,7 @@ pub fn decide(input: DecisionInput) -> Decision {
         matched_rules: &input.score.matched_rules,
         blocked_by_missing_price,
     });
+    let explanation = serde_json::to_value(&model_report).unwrap_or(serde_json::json!({}));
     let decision_id = deterministic_decision_id(
         &input.event,
         action,
@@ -187,6 +191,11 @@ pub fn decide(input: DecisionInput) -> Decision {
         sector: input.event.sector,
         thesis,
         reasons,
+        model_version: DECISION_MODEL_VERSION.to_string(),
+        input_hash: model_report.input_hash,
+        expected_return: Some(model_report.impact.expected_return),
+        downside: Some(model_report.impact.downside),
+        explanation,
         execution_ready,
     }
 }
@@ -315,7 +324,7 @@ mod tests {
     use chrono::{NaiveDate, Utc};
 
     use super::*;
-    use crate::{features::FeatureVector, rules::RuleRegistry};
+    use crate::{features::FeatureVector, model::DECISION_MODEL_VERSION, rules::RuleRegistry};
 
     fn event(headline: &str) -> NormalizedEvent {
         NormalizedEvent {
@@ -447,6 +456,16 @@ mod tests {
 
         assert_eq!(one, two);
         assert_eq!(one.action, Action::Buy);
+        assert_eq!(one.model_version, DECISION_MODEL_VERSION);
+        assert_eq!(one.input_hash, two.input_hash);
+        assert!(one.explanation["pipeline"].is_array());
+        assert!(
+            one.explanation["utilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|utility| utility["action"] == "PAPER")
+        );
     }
 
     #[test]
@@ -470,5 +489,66 @@ mod tests {
         assert_eq!(decision.action, Action::Sell);
         assert_eq!(decision.quantity, Some(20));
         assert!(decision.execution_ready);
+    }
+
+    #[test]
+    fn event_study_evidence_is_included_in_explanation() {
+        let registry = RuleRegistry::builtin();
+        let event = event("Quarterly earnings beat estimates");
+        let score = score_event(&event, &registry);
+
+        let decision = decide(DecisionInput {
+            event,
+            score,
+            facts: AsOfFacts {
+                entry_price: Some(1000.0),
+                exchange: Some("NSE".to_string()),
+                event_study: Some(crate::model::EventStudyEvidence {
+                    abnormal_returns: vec![0.02, 0.03, -0.01],
+                }),
+                ..AsOfFacts::default()
+            },
+            thresholds: DecisionThresholds::default(),
+        });
+
+        assert_eq!(
+            decision.explanation["impact"]["event_study"]["sample_count"],
+            3
+        );
+        assert_eq!(
+            decision.explanation["impact"]["event_study"]["cumulative_abnormal_return"],
+            0.04
+        );
+        assert_eq!(decision.expected_return, Some(0.0133));
+    }
+
+    #[test]
+    fn insufficient_evidence_holds_even_with_price() {
+        let registry = RuleRegistry::builtin();
+        let mut event = event("Company publishes routine update");
+        event.body = "The company published a routine administrative note.".to_string();
+        let score = score_event(&event, &registry);
+
+        let decision = decide(DecisionInput {
+            event,
+            score,
+            facts: AsOfFacts {
+                entry_price: Some(1000.0),
+                exchange: Some("NSE".to_string()),
+                ..AsOfFacts::default()
+            },
+            thresholds: DecisionThresholds::default(),
+        });
+
+        assert_eq!(decision.action, Action::Hold);
+        assert!(!decision.execution_ready);
+        assert!(
+            decision
+                .explanation
+                .get("missing_facts")
+                .and_then(serde_json::Value::as_array)
+                .unwrap()
+                .contains(&serde_json::json!("evidence"))
+        );
     }
 }

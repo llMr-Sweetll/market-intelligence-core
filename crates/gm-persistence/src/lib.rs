@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use anyhow::Context;
-use gm_domain::{Decision, DecisionInput, NormalizedEvent, PriceBar, scoring::ScoreOutput};
+use gm_domain::{
+    Decision, DecisionInput, NormalizedEvent, PriceBar, input_hash, scoring::ScoreOutput,
+};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
@@ -228,14 +230,7 @@ impl PgStore {
         let score_json = serde_json::to_value(&input.score)?;
         let facts_json = serde_json::to_value(&input.facts)?;
         let thresholds_json = serde_json::to_value(input.thresholds)?;
-        let input_json = serde_json::json!({
-            "event": event_json,
-            "score": score_json,
-            "facts": facts_json,
-            "thresholds": thresholds_json,
-        });
-        let input_bytes = serde_json::to_vec(&input_json)?;
-        let input_hash = Uuid::new_v5(&Uuid::NAMESPACE_URL, &input_bytes).to_string();
+        let input_hash = input_hash(input);
 
         sqlx::query(
             r#"
