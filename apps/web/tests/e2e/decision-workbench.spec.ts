@@ -4,6 +4,17 @@ test('submits the decision fixture and renders the evidence audit trail', async 
   await page.goto('/')
 
   await expect(page.getByText('Online')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Normalized review queue' })).toBeVisible()
+  await expect(page.getByText('Quarterly earnings beat estimates', { exact: true }).first()).toBeVisible()
+
+  await page.getByLabel('Event class').selectOption('MEDICAL_CLASSIFICATION')
+
+  await expect(
+    page.getByText('Therapy classification update affects reimbursement basket', { exact: true }).first(),
+  ).toBeVisible()
+  await expect(page.getByText('ICD-11 respiratory classification')).toBeVisible()
+  await expect(page.getByText('raw-who-icd11')).toBeVisible()
+
   await page.getByRole('button', { name: /run fixture/i }).click()
 
   await expect(page.getByRole('heading', { name: 'BUY' })).toBeVisible()

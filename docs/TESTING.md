@@ -49,7 +49,8 @@ make web-e2e
 ```
 
 This starts the Rust API without persistence, starts the Vite app with
-`VITE_API_BASE_URL` pointed at that API, submits the Decision Workbench fixture,
+`VITE_API_BASE_URL` pointed at that API, filters the Event Inbox fixture feed,
+checks selected event detail metadata, submits the Decision Workbench fixture,
 and checks that the evidence, risk gates, replay metadata, similar-event
 history, and missing-fact state render in Chromium.
 
@@ -79,6 +80,7 @@ Current unit tests cover:
 - deterministic decision IDs
 - provider adapter fixtures for market data, events, filings, entity mapping,
   payments, and paper execution
+- Event Inbox API list/detail contracts and component filtering
 - Decision Workbench component and browser smoke coverage
 
 ## What Still Needs Coverage

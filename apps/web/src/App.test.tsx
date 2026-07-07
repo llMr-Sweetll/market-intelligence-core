@@ -90,6 +90,136 @@ const defaultDecisionPayload = {
   execution_ready: true,
 }
 
+const eventSummaries = [
+  {
+    event_id: 'norm-smoke-earnings',
+    version: 1,
+    headline: 'Quarterly earnings beat estimates',
+    occurred_at: '2026-07-06T09:15:00Z',
+    source: 'NSE',
+    region: 'IN',
+    sector: 'Oil & Gas',
+    symbol: 'RELIANCE',
+    event_class: 'EARNINGS',
+    confidence: 0.91,
+    severity: 'High',
+    entity_mapping_status: 'resolved',
+    source_reliability: {
+      tier: 'primary',
+      score: 0.9,
+      rationale: 'Exchange filing fixture with direct company symbol mapping.',
+    },
+  },
+  {
+    event_id: 'norm-medical-classification',
+    version: 1,
+    headline: 'Therapy classification update affects reimbursement basket',
+    occurred_at: '2026-07-06T11:30:00Z',
+    source: 'WHO',
+    region: 'GLOBAL',
+    sector: 'Healthcare',
+    symbol: 'PHARMA',
+    event_class: 'MEDICAL_CLASSIFICATION',
+    confidence: 0.78,
+    severity: 'Watch',
+    entity_mapping_status: 'resolved',
+    source_reliability: {
+      tier: 'reference',
+      score: 0.8,
+      rationale: 'Reference taxonomy fixture used for market categorization only.',
+    },
+  },
+]
+
+const eventDetails = {
+  'norm-smoke-earnings': {
+    summary: eventSummaries[0],
+    event: {
+      event_id: 'norm-smoke-earnings',
+      version: 1,
+      causal_parent_id: 'raw-smoke-earnings',
+      event_type: 'EARNINGS',
+      headline: 'Quarterly earnings beat estimates',
+      body: 'Profit rose and revenue grew higher than expected.',
+      occurred_at: '2026-07-06T09:15:00Z',
+      symbol: 'RELIANCE',
+      sector: 'Oil & Gas',
+      source: 'NSE',
+      region: 'IN',
+      impact_level: 'HIGH',
+      impact_category: 'EARNINGS',
+    },
+    raw_source: {
+      provider: 'NSE',
+      source_id: 'raw-smoke-earnings',
+      url: 'https://www.nseindia.com/',
+      received_at: '2026-07-06T09:15:00Z',
+      language: 'en',
+      raw_headline: 'Quarterly earnings beat estimates',
+    },
+    normalized_facts: {
+      event_type: 'EARNINGS',
+      symbol: 'RELIANCE',
+      sector: 'Oil & Gas',
+      region: 'IN',
+      impact_level: 'HIGH',
+      impact_category: 'EARNINGS',
+    },
+    entity_mappings: [
+      {
+        entity_id: 'company:reliance',
+        entity_type: 'COMPANY',
+        label: 'Reliance Industries',
+        confidence: 0.95,
+      },
+    ],
+    source_reliability: eventSummaries[0].source_reliability,
+  },
+  'norm-medical-classification': {
+    summary: eventSummaries[1],
+    event: {
+      event_id: 'norm-medical-classification',
+      version: 1,
+      causal_parent_id: 'raw-who-icd11',
+      event_type: 'MEDICAL_CLASSIFICATION',
+      headline: 'Therapy classification update affects reimbursement basket',
+      body: 'ICD-11 medical classification and reimbursement code update affects healthcare exposure.',
+      occurred_at: '2026-07-06T11:30:00Z',
+      symbol: 'PHARMA',
+      sector: 'Healthcare',
+      source: 'WHO',
+      region: 'GLOBAL',
+      impact_level: 'WATCH',
+      impact_category: 'HEALTH_CLASSIFICATION',
+    },
+    raw_source: {
+      provider: 'WHO',
+      source_id: 'raw-who-icd11',
+      url: 'https://icd.who.int/',
+      received_at: '2026-07-06T11:30:00Z',
+      language: 'en',
+      raw_headline: 'Therapy classification update affects reimbursement basket',
+    },
+    normalized_facts: {
+      event_type: 'MEDICAL_CLASSIFICATION',
+      symbol: 'PHARMA',
+      sector: 'Healthcare',
+      region: 'GLOBAL',
+      impact_level: 'WATCH',
+      impact_category: 'HEALTH_CLASSIFICATION',
+    },
+    entity_mappings: [
+      {
+        entity_id: 'classification:icd11-respiratory',
+        entity_type: 'DISEASE_CLASSIFICATION',
+        label: 'ICD-11 respiratory classification',
+        confidence: 0.84,
+      },
+    ],
+    source_reliability: eventSummaries[1].source_reliability,
+  },
+}
+
 function renderApp() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -113,6 +243,20 @@ function mockFetch(decisionPayload?: unknown) {
       return Response.json({ status: 'ok', service: 'gm-api' })
     }
 
+    if (url.endsWith('/events')) {
+      return Response.json(eventSummaries)
+    }
+
+    if (url.includes('/events/')) {
+      const eventId = decodeURIComponent(url.split('/events/')[1] ?? '')
+      const detail = eventDetails[eventId as keyof typeof eventDetails]
+      if (detail) {
+        return Response.json(detail)
+      }
+
+      return Response.json({ error: 'event not found' }, { status: 404 })
+    }
+
     if (url.endsWith('/decide')) {
       return Response.json(decisionPayload ?? defaultDecisionPayload)
     }
@@ -132,6 +276,22 @@ test('renders the operator console with live health state', async () => {
   expect(screen.getByRole('heading', { name: 'Normalized review queue' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Evidence and audit trail' })).toBeInTheDocument()
   expect(await screen.findByText('Online')).toBeInTheDocument()
+  expect((await screen.findAllByText('Quarterly earnings beat estimates')).length).toBeGreaterThan(0)
+})
+
+test('filters event inbox and renders selected review detail', async () => {
+  mockFetch()
+  renderApp()
+
+  expect((await screen.findAllByText('Quarterly earnings beat estimates')).length).toBeGreaterThan(0)
+  expect(await screen.findByRole('option', { name: 'Medical Classification' })).toBeInTheDocument()
+
+  await userEvent.selectOptions(screen.getByLabelText('Event class'), 'MEDICAL_CLASSIFICATION')
+
+  expect(screen.getAllByText('Therapy classification update affects reimbursement basket').length).toBeGreaterThan(0)
+  expect(await screen.findByText('ICD-11 respiratory classification')).toBeInTheDocument()
+  expect(screen.getByText('raw-who-icd11')).toBeInTheDocument()
+  expect(screen.getByText('Reference taxonomy fixture used for market categorization only.')).toBeInTheDocument()
 })
 
 test('posts the smoke fixture and renders the backend decision', async () => {
@@ -149,7 +309,7 @@ test('posts the smoke fixture and renders the backend decision', async () => {
   expect(screen.getByText('09f2b77a...bc11')).toBeInTheDocument()
   expect(screen.getByText('Earnings Positive')).toBeInTheDocument()
   expect(screen.getByText('Car Fixture')).toBeInTheDocument()
-  expect(screen.getByText('EARNINGS')).toBeInTheDocument()
+  expect(screen.getAllByText('EARNINGS').length).toBeGreaterThan(0)
   expect(screen.getByText('Similar-event history')).toBeInTheDocument()
   expect(screen.getByText('Missing facts clear')).toBeInTheDocument()
   expect(screen.getByText('PAPER')).toBeInTheDocument()

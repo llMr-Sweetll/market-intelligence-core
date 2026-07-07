@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -29,10 +29,14 @@ import { createChart, LineSeries, type LineData } from 'lightweight-charts'
 
 import {
   createDecision,
+  fetchEvent,
+  fetchEvents,
   fetchHealth,
   getApiBaseUrl,
   type Decision,
   type DecisionRequest,
+  type EventReviewDetail,
+  type EventReviewSummary,
   type HealthResponse,
 } from './api'
 import { earningsDecisionRequest, impactSeries } from './fixtures'
@@ -46,14 +50,16 @@ type Metric = {
   tone: StatusTone
 }
 
-type EventRow = {
-  id: string
-  title: string
+type EventFilterState = {
+  region: string
+  market: string
+  sector: string
+  eventClass: string
   source: string
-  category: string
-  symbol: string
-  priority: string
+  severity: string
 }
+
+type EventFilterOptions = Record<keyof EventFilterState, string[]>
 
 type KnowledgeRow = {
   label: string
@@ -75,41 +81,6 @@ const metrics: Metric[] = [
   { label: 'Decision path', value: 'Deterministic', detail: 'No clock or random input', tone: 'green' },
   { label: 'Order mode', value: 'Disabled', detail: 'Read-only plus paper trading', tone: 'amber' },
   { label: 'Payments', value: 'Test mode', detail: 'Webhook verification planned', tone: 'neutral' },
-]
-
-const eventRows: EventRow[] = [
-  {
-    id: 'evt-earnings',
-    title: 'Quarterly earnings beat estimates',
-    source: 'NSE',
-    category: 'Earnings',
-    symbol: 'RELIANCE',
-    priority: 'High',
-  },
-  {
-    id: 'evt-policy',
-    title: 'Central bank policy statement updates liquidity stance',
-    source: 'Regulator',
-    category: 'Policy',
-    symbol: 'BANKNIFTY',
-    priority: 'Review',
-  },
-  {
-    id: 'evt-medical',
-    title: 'Therapy classification update affects reimbursement basket',
-    source: 'Registry',
-    category: 'Medical',
-    symbol: 'PHARMA',
-    priority: 'Watch',
-  },
-  {
-    id: 'evt-corporate',
-    title: 'Company board approves structure and reporting change',
-    source: 'Filing',
-    category: 'Company',
-    symbol: 'NIFTY50',
-    priority: 'Review',
-  },
 ]
 
 const knowledgeRows: KnowledgeRow[] = [
@@ -151,11 +122,34 @@ const integrationRows: IntegrationRow[] = [
 ]
 
 function App() {
+  const [eventFilters, setEventFilters] = useState({
+    region: 'all',
+    market: 'all',
+    sector: 'all',
+    eventClass: 'all',
+    source: 'all',
+    severity: 'all',
+  })
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+
   const health = useQuery<HealthResponse>({
     queryKey: ['health'],
     queryFn: fetchHealth,
     retry: false,
     refetchInterval: 30_000,
+  })
+
+  const eventInbox = useQuery<EventReviewSummary[]>({
+    queryKey: ['events'],
+    queryFn: fetchEvents,
+    retry: false,
+  })
+
+  const eventDetail = useQuery<EventReviewDetail>({
+    queryKey: ['event', selectedEventId],
+    queryFn: () => fetchEvent(selectedEventId ?? ''),
+    enabled: selectedEventId !== null,
+    retry: false,
   })
 
   const decision = useMutation<Decision, Error, void>({
@@ -173,6 +167,34 @@ function App() {
 
     return { label: 'Offline', tone: 'red' as StatusTone }
   }, [health.data?.status, health.isPending, health.isSuccess])
+
+  const filterOptions = useMemo(
+    () => buildEventFilterOptions(eventInbox.data ?? []),
+    [eventInbox.data],
+  )
+
+  const visibleEvents = useMemo(
+    () => filterEvents(eventInbox.data ?? [], eventFilters),
+    [eventFilters, eventInbox.data],
+  )
+
+  useEffect(() => {
+    if (!eventInbox.data?.length) {
+      return
+    }
+
+    setSelectedEventId((current) => current ?? eventInbox.data[0]?.event_id ?? null)
+  }, [eventInbox.data])
+
+  useEffect(() => {
+    if (visibleEvents.length === 0) {
+      return
+    }
+
+    if (!visibleEvents.some((event) => event.event_id === selectedEventId)) {
+      setSelectedEventId(visibleEvents[0]?.event_id ?? null)
+    }
+  }, [selectedEventId, visibleEvents])
 
   return (
     <div className="app-shell">
@@ -257,32 +279,83 @@ function App() {
               <p className="eyebrow">Event Inbox</p>
               <h3 id="events-heading">Normalized review queue</h3>
             </div>
-            <button className="ghost-button" type="button">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => void eventInbox.refetch()}
+              disabled={eventInbox.isFetching}
+            >
               <Database size={17} aria-hidden="true" />
-              Import feed
+              {eventInbox.isFetching ? 'Loading fixtures' : 'Reload fixtures'}
             </button>
           </div>
 
-          <div className="event-table" role="table" aria-label="Normalized events">
-            <div className="event-table-head" role="row">
-              <span role="columnheader">Event</span>
-              <span role="columnheader">Source</span>
-              <span role="columnheader">Type</span>
-              <span role="columnheader">Symbol</span>
-              <span role="columnheader">Priority</span>
+          <EventFilters
+            filters={eventFilters}
+            options={filterOptions}
+            onChange={setEventFilters}
+          />
+
+          {eventInbox.error ? (
+            <div className="event-state error-state" role="alert">
+              <p className="eyebrow">Events</p>
+              <h4>Event API unavailable</h4>
+              <p>{eventInbox.error.message}</p>
             </div>
-            {eventRows.map((event) => (
-              <div className="event-row" role="row" key={event.id}>
-                <strong role="cell">{event.title}</strong>
-                <span role="cell">{event.source}</span>
-                <span role="cell">{event.category}</span>
-                <span role="cell">{event.symbol}</span>
-                <span className="priority" role="cell">
-                  {event.priority}
-                </span>
+          ) : eventInbox.isPending ? (
+            <div className="event-state empty-state">
+              <p className="eyebrow">Events</p>
+              <h4>Loading fixture events</h4>
+              <p>Fetching normalized review data from /events.</p>
+            </div>
+          ) : (
+            <div className="event-inbox-layout">
+              <div className="event-table" role="table" aria-label="Normalized events">
+                <div className="event-table-head" role="row">
+                  <span role="columnheader">Event</span>
+                  <span role="columnheader">Source</span>
+                  <span role="columnheader">Class</span>
+                  <span role="columnheader">Symbol</span>
+                  <span role="columnheader">Severity</span>
+                </div>
+                {visibleEvents.length > 0 ? (
+                  visibleEvents.map((event) => (
+                    <div
+                      className={`event-row ${selectedEventId === event.event_id ? 'is-selected' : ''}`}
+                      role="row"
+                      key={event.event_id}
+                    >
+                      <button
+                        className="event-title-button"
+                        type="button"
+                        role="cell"
+                        onClick={() => setSelectedEventId(event.event_id)}
+                      >
+                        <strong>{event.headline}</strong>
+                        <small>{formatDateTime(event.occurred_at)}</small>
+                      </button>
+                      <span role="cell">{event.source ?? '-'}</span>
+                      <span role="cell">{formatLabel(event.event_class)}</span>
+                      <span role="cell">{event.symbol ?? '-'}</span>
+                      <span className="priority" role="cell">
+                        {event.severity}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="event-row empty-event-row" role="row">
+                    <span role="cell">No events match the selected filters.</span>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+
+              <EventDetailPanel
+                detail={eventDetail.data}
+                error={eventDetail.error}
+                isLoading={eventDetail.isPending || eventDetail.isFetching}
+              />
+            </div>
+          )}
         </section>
 
         <section
@@ -434,6 +507,193 @@ function App() {
           </div>
         </section>
       </main>
+    </div>
+  )
+}
+
+function EventFilters({
+  filters,
+  options,
+  onChange,
+}: {
+  filters: EventFilterState
+  options: EventFilterOptions
+  onChange: (filters: EventFilterState) => void
+}) {
+  const setFilter = (key: keyof EventFilterState, value: string) => {
+    onChange({ ...filters, [key]: value })
+  }
+
+  return (
+    <div className="event-filter-grid" aria-label="Event filters">
+      <FilterSelect
+        label="Region"
+        value={filters.region}
+        options={options.region}
+        onChange={(value) => setFilter('region', value)}
+      />
+      <FilterSelect
+        label="Market"
+        value={filters.market}
+        options={options.market}
+        onChange={(value) => setFilter('market', value)}
+      />
+      <FilterSelect
+        label="Sector"
+        value={filters.sector}
+        options={options.sector}
+        onChange={(value) => setFilter('sector', value)}
+      />
+      <FilterSelect
+        label="Event class"
+        value={filters.eventClass}
+        options={options.eventClass}
+        onChange={(value) => setFilter('eventClass', value)}
+      />
+      <FilterSelect
+        label="Source"
+        value={filters.source}
+        options={options.source}
+        onChange={(value) => setFilter('source', value)}
+      />
+      <FilterSelect
+        label="Severity"
+        value={filters.severity}
+        options={options.severity}
+        onChange={(value) => setFilter('severity', value)}
+      />
+    </div>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="filter-select">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="all">All</option>
+        {options.map((option) => (
+          <option value={option} key={option}>
+            {formatLabel(option)}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function EventDetailPanel({
+  detail,
+  error,
+  isLoading,
+}: {
+  detail: EventReviewDetail | undefined
+  error: Error | null
+  isLoading: boolean
+}) {
+  if (error) {
+    return (
+      <div className="event-detail error-state" role="alert">
+        <p className="eyebrow">Event detail</p>
+        <h4>Detail unavailable</h4>
+        <p>{error.message}</p>
+      </div>
+    )
+  }
+
+  if (isLoading || !detail) {
+    return (
+      <div className="event-detail empty-state">
+        <p className="eyebrow">Event detail</p>
+        <h4>Loading selected event</h4>
+        <p>Fetching raw metadata, normalized facts, and mappings.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="event-detail" aria-label="Selected event detail">
+      <div className="event-detail-head">
+        <div>
+          <p className="eyebrow">Selected Event</p>
+          <h4>{detail.summary.headline}</h4>
+        </div>
+        <span className="status-chip tone-blue">{formatPercent(detail.summary.confidence)}</span>
+      </div>
+
+      <dl className="event-detail-grid">
+        <div>
+          <dt>Class</dt>
+          <dd>{formatLabel(detail.summary.event_class)}</dd>
+        </div>
+        <div>
+          <dt>Reliability</dt>
+          <dd>
+            {formatLabel(detail.source_reliability.tier)} ·{' '}
+            {formatPercent(detail.source_reliability.score)}
+          </dd>
+        </div>
+        <div>
+          <dt>Source ID</dt>
+          <dd className="mono">{detail.raw_source.source_id}</dd>
+        </div>
+        <div>
+          <dt>Mapping</dt>
+          <dd>{formatLabel(detail.summary.entity_mapping_status)}</dd>
+        </div>
+      </dl>
+
+      <div className="event-detail-section">
+        <h5>Raw source metadata</h5>
+        <p>{detail.raw_source.raw_headline}</p>
+        <small>
+          {detail.raw_source.provider} · {detail.raw_source.language.toUpperCase()} ·{' '}
+          {formatDateTime(detail.raw_source.received_at)}
+        </small>
+      </div>
+
+      <div className="event-detail-section">
+        <h5>Normalized facts</h5>
+        <dl className="context-list">
+          {Object.entries(detail.normalized_facts).map(([key, value]) => (
+            <div key={key}>
+              <dt>{formatLabel(key)}</dt>
+              <dd>{value ?? '-'}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <div className="event-detail-section">
+        <h5>Entity mappings</h5>
+        <div className="mapping-list">
+          {detail.entity_mappings.map((mapping) => (
+            <div className="mapping-row" key={mapping.entity_id}>
+              <div>
+                <strong>{mapping.label}</strong>
+                <span>{formatLabel(mapping.entity_type)}</span>
+              </div>
+              <code>{mapping.entity_id}</code>
+              <span>{formatPercent(mapping.confidence)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="event-detail-section">
+        <h5>Source reliability</h5>
+        <p>{detail.source_reliability.rationale}</p>
+      </div>
     </div>
   )
 }
@@ -775,6 +1035,42 @@ function formatPercent(value: number): string {
   }).format(value)
 }
 
+function buildEventFilterOptions(events: EventReviewSummary[]): EventFilterOptions {
+  return {
+    region: uniqueValues(events.map((event) => event.region)),
+    market: uniqueValues(events.map((event) => event.symbol)),
+    sector: uniqueValues(events.map((event) => event.sector)),
+    eventClass: uniqueValues(events.map((event) => event.event_class)),
+    source: uniqueValues(events.map((event) => event.source)),
+    severity: uniqueValues(events.map((event) => event.severity)),
+  }
+}
+
+function filterEvents(
+  events: EventReviewSummary[],
+  filters: EventFilterState,
+): EventReviewSummary[] {
+  return events.filter(
+    (event) =>
+      matchesFilter(event.region, filters.region) &&
+      matchesFilter(event.symbol, filters.market) &&
+      matchesFilter(event.sector, filters.sector) &&
+      matchesFilter(event.event_class, filters.eventClass) &&
+      matchesFilter(event.source, filters.source) &&
+      matchesFilter(event.severity, filters.severity),
+  )
+}
+
+function uniqueValues(values: Array<string | null>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort(
+    (left, right) => left.localeCompare(right),
+  )
+}
+
+function matchesFilter(value: string | null, filter: string): boolean {
+  return filter === 'all' || value === filter
+}
+
 function formatSignedPercent(value: number | null): string {
   if (value === null) {
     return '-'
@@ -799,6 +1095,14 @@ function formatLabel(value: string): string {
     .replaceAll('_', ' ')
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(value))
 }
 
 function shortHash(value: string): string {
