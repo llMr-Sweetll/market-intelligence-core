@@ -109,6 +109,17 @@ Content:
   explanation
 - replay ID and model version
 
+Current release surface:
+
+- submits the fixture event and as-of facts to the local API
+- displays action, confidence, expected return, downside, quantity, target, and
+  stop
+- displays model version, input hash, parent event, and event version for replay
+- displays risk gates, rule/event-study evidence, action utilities, input
+  context, similar-event history, missing facts, and replay pipeline
+- keeps live broker execution unavailable; executable output means local
+  decision readiness only
+
 ### Knowledge Graph
 
 Purpose: inspect relationships that influence event interpretation.
@@ -193,6 +204,5 @@ The UI is release-ready when:
 - Decision Workbench completes against the local backend
 - chart surfaces are nonblank with fixture data
 - keyboard navigation reaches primary controls
-- Playwright covers Command Center and Decision Workbench
+- Playwright covers Command Center and Decision Workbench against the local API
 - screenshots are attached to the frontend PR
-

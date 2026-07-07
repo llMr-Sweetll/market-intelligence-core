@@ -42,6 +42,17 @@ The smoke test verifies:
   injected price.
 - Quantity, target, stop, and score are stable.
 
+## Browser Smoke Test
+
+```bash
+make web-e2e
+```
+
+This starts the Rust API without persistence, starts the Vite app with
+`VITE_API_BASE_URL` pointed at that API, submits the Decision Workbench fixture,
+and checks that the evidence, risk gates, replay metadata, similar-event
+history, and missing-fact state render in Chromium.
+
 ## PostgreSQL Migration Check
 
 ```bash
@@ -68,6 +79,7 @@ Current unit tests cover:
 - deterministic decision IDs
 - provider adapter fixtures for market data, events, filings, entity mapping,
   payments, and paper execution
+- Decision Workbench component and browser smoke coverage
 
 ## What Still Needs Coverage
 

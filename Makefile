@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test audit check web-install web-build web-test web-check check-all run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
+.PHONY: fmt fmt-check clippy test audit check web-install web-build web-test web-e2e web-check check-all run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
 
 fmt:
 	cargo fmt --all
@@ -25,6 +25,9 @@ web-build:
 
 web-test:
 	npm run test --prefix apps/web
+
+web-e2e:
+	npm run test:e2e --prefix apps/web
 
 web-check:
 	npm run check --prefix apps/web
