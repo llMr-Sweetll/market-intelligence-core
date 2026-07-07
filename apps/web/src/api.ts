@@ -32,6 +32,7 @@ export type DecisionRequest = {
     exchange: string | null
     features: unknown | null
     prediction: unknown | null
+    event_study: { abnormal_returns: number[] } | null
     kg_modifier: number
   }
 }
@@ -41,11 +42,70 @@ export type HealthResponse = {
   service: string
 }
 
+export type DecisionAction = 'BUY' | 'SELL' | 'HOLD'
+
+export type CandidateAction = DecisionAction | 'PAPER'
+
+export type EvidenceItem = {
+  evidence_type: string
+  label: string
+  contribution: number
+  confidence: number
+}
+
+export type EventStudySummary = {
+  sample_count: number
+  cumulative_abnormal_return: number | null
+  mean_abnormal_return: number | null
+  hit_rate: number | null
+  t_stat: number | null
+  calibrated_weight: number
+  calibrated_confidence: number
+}
+
+export type ImpactEstimate = {
+  combined_score: number
+  expected_return: number
+  downside: number
+  event_study: EventStudySummary | null
+}
+
+export type GateReport = {
+  name: string
+  passed: boolean
+  reason: string
+}
+
+export type UtilityEstimate = {
+  action: CandidateAction
+  expected_utility: number
+}
+
+export type ModelExplanation = {
+  model_version: string
+  input_hash: string
+  pipeline: string[]
+  entity_resolution: {
+    symbol: string | null
+    sector: string | null
+    region: string | null
+    confidence: number
+  }
+  evidence: EvidenceItem[]
+  impact: ImpactEstimate
+  gates: GateReport[]
+  utilities: UtilityEstimate[]
+  recommended_action: DecisionAction
+  confidence: number
+  missing_facts: string[]
+  summary: string
+}
+
 export type Decision = {
   decision_id: string
   parent_event_id: string
   parent_event_version: number
-  action: 'BUY' | 'SELL' | 'HOLD'
+  action: DecisionAction
   total_score: number
   confidence: number
   position_size: number
@@ -59,6 +119,11 @@ export type Decision = {
   sector: string | null
   thesis: string
   reasons: Array<{ rule_id?: string; contribution?: number; rationale?: string }>
+  model_version: string
+  input_hash: string
+  expected_return: number | null
+  downside: number | null
+  explanation: ModelExplanation
   execution_ready: boolean
 }
 
@@ -98,4 +163,3 @@ export function createDecision(payload: DecisionRequest): Promise<Decision> {
 export function getApiBaseUrl(): string {
   return apiBaseUrl
 }
-

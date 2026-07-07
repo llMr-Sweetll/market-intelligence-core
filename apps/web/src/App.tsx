@@ -2,20 +2,25 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Activity,
+  AlertTriangle,
   ArrowUpRight,
   Banknote,
   Bell,
   Building2,
   CheckCircle2,
   CircleDollarSign,
+  ClipboardCheck,
   Database,
+  Fingerprint,
   GitBranch,
   Globe2,
   Landmark,
   LineChart,
+  ListChecks,
   Network,
   PlugZap,
   RefreshCw,
+  Scale,
   ShieldCheck,
   Stethoscope,
   TrendingUp,
@@ -27,6 +32,7 @@ import {
   fetchHealth,
   getApiBaseUrl,
   type Decision,
+  type DecisionRequest,
   type HealthResponse,
 } from './api'
 import { earningsDecisionRequest, impactSeries } from './fixtures'
@@ -287,7 +293,7 @@ function App() {
           <div className="section-heading">
             <div>
               <p className="eyebrow">Decision Workbench</p>
-              <h3 id="decision-heading">Backend contract smoke path</h3>
+              <h3 id="decision-heading">Evidence and audit trail</h3>
             </div>
             <button
               className="primary-button"
@@ -321,10 +327,22 @@ function App() {
                   <dt>Exchange</dt>
                   <dd>{earningsDecisionRequest.facts.exchange}</dd>
                 </div>
+                <div>
+                  <dt>Event ID</dt>
+                  <dd className="mono">{earningsDecisionRequest.event.event_id}</dd>
+                </div>
+                <div>
+                  <dt>Evidence</dt>
+                  <dd>{earningsDecisionRequest.facts.event_study?.abnormal_returns.length ?? 0} samples</dd>
+                </div>
               </dl>
             </div>
 
-            <DecisionResult decision={decision.data} error={decision.error} />
+            <DecisionResult
+              decision={decision.data}
+              error={decision.error}
+              request={earningsDecisionRequest}
+            />
           </div>
         </section>
 
@@ -423,9 +441,11 @@ function App() {
 function DecisionResult({
   decision,
   error,
+  request,
 }: {
   decision: Decision | undefined
   error: Error | null
+  request: DecisionRequest
 }) {
   if (error) {
     return (
@@ -455,8 +475,30 @@ function DecisionResult({
           <h4>{decision.action}</h4>
         </div>
         <span className={`action-badge action-${decision.action.toLowerCase()}`}>
-          {decision.execution_ready ? 'Execution ready' : 'Review'}
+          {decision.execution_ready ? 'Paper ready' : 'Review'}
         </span>
+      </div>
+
+      <div className="audit-strip" aria-label="Decision replay metadata">
+        <div>
+          <Fingerprint size={18} aria-hidden="true" />
+          <span>Input hash</span>
+          <strong className="mono" title={decision.input_hash}>
+            {shortHash(decision.input_hash)}
+          </strong>
+        </div>
+        <div>
+          <GitBranch size={18} aria-hidden="true" />
+          <span>Model</span>
+          <strong>{decision.model_version}</strong>
+        </div>
+        <div>
+          <ClipboardCheck size={18} aria-hidden="true" />
+          <span>Replay</span>
+          <strong>
+            {decision.parent_event_id} v{decision.parent_event_version}
+          </strong>
+        </div>
       </div>
 
       <dl className="result-grid">
@@ -477,6 +519,14 @@ function DecisionResult({
           <dd>{formatCurrency(decision.target_price)}</dd>
         </div>
         <div>
+          <dt>Expected return</dt>
+          <dd>{formatSignedPercent(decision.expected_return)}</dd>
+        </div>
+        <div>
+          <dt>Downside</dt>
+          <dd>{formatSignedPercent(decision.downside)}</dd>
+        </div>
+        <div>
           <dt>Stop</dt>
           <dd>{formatCurrency(decision.stop_loss)}</dd>
         </div>
@@ -487,6 +537,168 @@ function DecisionResult({
       </dl>
 
       <p className="thesis">{decision.thesis}</p>
+
+      <ModelReportView decision={decision} request={request} />
+    </div>
+  )
+}
+
+function ModelReportView({
+  decision,
+  request,
+}: {
+  decision: Decision
+  request: DecisionRequest
+}) {
+  const explanation = decision.explanation
+  const missingFacts = explanation.missing_facts
+  const eventStudy = explanation.impact.event_study
+  const featureState = request.facts.features ? 'Supplied' : 'Not supplied'
+  const predictionState = request.facts.prediction ? 'Supplied' : 'Not supplied'
+
+  return (
+    <div className="model-report" aria-label="Model explanation">
+      <section className="report-section" aria-labelledby="summary-heading">
+        <div className="report-section-head">
+          <Scale size={18} aria-hidden="true" />
+          <h5 id="summary-heading">Model summary</h5>
+        </div>
+        <p>{explanation.summary}</p>
+      </section>
+
+      <section className="report-section input-context-section" aria-labelledby="input-context-heading">
+        <div className="report-section-head">
+          <ClipboardCheck size={18} aria-hidden="true" />
+          <h5 id="input-context-heading">Input context</h5>
+        </div>
+        <dl className="context-list">
+          <div>
+            <dt>Event class</dt>
+            <dd>{request.event.event_type ?? 'Unclassified'}</dd>
+          </div>
+          <div>
+            <dt>Macro score</dt>
+            <dd>{formatSignedNumber(request.facts.macro_context.total_macro_score)}</dd>
+          </div>
+          <div>
+            <dt>Features</dt>
+            <dd>{featureState}</dd>
+          </div>
+          <div>
+            <dt>Prediction</dt>
+            <dd>{predictionState}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="report-section" aria-labelledby="gates-heading">
+        <div className="report-section-head">
+          <ListChecks size={18} aria-hidden="true" />
+          <h5 id="gates-heading">Risk gates</h5>
+        </div>
+        <div className="gate-list">
+          {explanation.gates.map((gate) => (
+            <div className={`gate-row ${gate.passed ? 'gate-pass' : 'gate-block'}`} key={gate.name}>
+              {gate.passed ? (
+                <CheckCircle2 size={17} aria-hidden="true" />
+              ) : (
+                <AlertTriangle size={17} aria-hidden="true" />
+              )}
+              <strong>{formatLabel(gate.name)}</strong>
+              <span>{gate.reason}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="report-section evidence-section" aria-labelledby="evidence-heading">
+        <div className="report-section-head">
+          <Database size={18} aria-hidden="true" />
+          <h5 id="evidence-heading">Evidence</h5>
+        </div>
+        {explanation.evidence.length > 0 ? (
+          <div className="evidence-list">
+            {explanation.evidence.map((item) => (
+              <div className="evidence-row" key={`${item.evidence_type}-${item.label}`}>
+                <div>
+                  <strong title={item.label}>{formatLabel(item.label)}</strong>
+                  <span>{formatLabel(item.evidence_type)}</span>
+                </div>
+                <span>{formatSignedNumber(item.contribution)}</span>
+                <span>{formatPercent(item.confidence)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="quiet-copy">No evidence items returned.</p>
+        )}
+      </section>
+
+      <section className="report-section utility-section" aria-labelledby="utility-heading">
+        <div className="report-section-head">
+          <Activity size={18} aria-hidden="true" />
+          <h5 id="utility-heading">Action utilities</h5>
+        </div>
+        <div className="utility-list">
+          {explanation.utilities.map((utility) => (
+            <div className="utility-row" key={utility.action}>
+              <span>{utility.action}</span>
+              <div className="utility-track" aria-hidden="true">
+                <span
+                  className={utility.expected_utility >= 0 ? 'utility-positive' : 'utility-negative'}
+                  style={{ width: utilityBarWidth(utility.expected_utility) }}
+                />
+              </div>
+              <strong>{formatSignedNumber(utility.expected_utility)}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="report-section similar-events-section" aria-labelledby="similar-events-heading">
+        <div className="report-section-head">
+          <LineChart size={18} aria-hidden="true" />
+          <h5 id="similar-events-heading">Similar-event history</h5>
+        </div>
+        {eventStudy ? (
+          <dl className="context-list">
+            <div>
+              <dt>Samples</dt>
+              <dd>{eventStudy.sample_count}</dd>
+            </div>
+            <div>
+              <dt>CAR</dt>
+              <dd>{formatSignedPercent(eventStudy.cumulative_abnormal_return)}</dd>
+            </div>
+            <div>
+              <dt>Hit rate</dt>
+              <dd>{eventStudy.hit_rate === null ? '-' : formatPercent(eventStudy.hit_rate)}</dd>
+            </div>
+            <div>
+              <dt>T-stat</dt>
+              <dd>{eventStudy.t_stat ?? '-'}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="quiet-copy">No event-study evidence returned.</p>
+        )}
+      </section>
+
+      <section className="report-section replay-section" aria-labelledby="replay-heading">
+        <div className="report-section-head">
+          <GitBranch size={18} aria-hidden="true" />
+          <h5 id="replay-heading">Replay path</h5>
+        </div>
+        <ol className="pipeline-list">
+          {explanation.pipeline.map((step) => (
+            <li key={step}>{formatLabel(step)}</li>
+          ))}
+        </ol>
+        <div className={missingFacts.length > 0 ? 'missing-facts' : 'missing-facts clear'}>
+          <strong>{missingFacts.length > 0 ? 'Missing facts' : 'Missing facts clear'}</strong>
+          <span>{missingFacts.length > 0 ? missingFacts.map(formatLabel).join(', ') : 'All required facts present'}</span>
+        </div>
+      </section>
     </div>
   )
 }
@@ -561,6 +773,40 @@ function formatPercent(value: number): string {
     maximumFractionDigits: 0,
     style: 'percent',
   }).format(value)
+}
+
+function formatSignedPercent(value: number | null): string {
+  if (value === null) {
+    return '-'
+  }
+
+  return new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 1,
+    signDisplay: 'always',
+    style: 'percent',
+  }).format(value)
+}
+
+function formatSignedNumber(value: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 4,
+    signDisplay: 'always',
+  }).format(value)
+}
+
+function formatLabel(value: string): string {
+  return value
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function shortHash(value: string): string {
+  return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value
+}
+
+function utilityBarWidth(value: number): string {
+  return `${Math.min(Math.max(Math.abs(value) * 900, 6), 100)}%`
 }
 
 export default App

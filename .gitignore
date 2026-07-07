@@ -8,3 +8,5 @@
 .DS_Store
 coverage/
 lcov.info
+apps/web/test-results/
+apps/web/playwright-report/

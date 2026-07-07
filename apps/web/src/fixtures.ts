@@ -30,6 +30,7 @@ export const earningsDecisionRequest: DecisionRequest = {
     exchange: 'NSE',
     features: null,
     prediction: null,
+    event_study: { abnormal_returns: [0.012, 0.018, -0.004, 0.021, 0.009] },
     kg_modifier: 0,
   },
 }
@@ -43,4 +44,3 @@ export const impactSeries = [
   { time: '2026-07-08', value: 0.61 },
   { time: '2026-07-09', value: 0.48 },
 ]
-
