@@ -29,6 +29,7 @@ flowchart LR
 ## Boundaries
 
 - `gm-domain` contains pure functions and serializable data types.
+- `gm-integrations` defines provider traits and deterministic provider fixtures.
 - `gm-api` converts HTTP requests into domain inputs and returns domain outputs.
 - `gm-api` also performs optional audit persistence when `DATABASE_URL` is set.
 - `gm-persistence` owns database connection, migration helpers, and append-only
@@ -37,7 +38,7 @@ flowchart LR
 
 ## Invariants
 
-- Scoring and decision functions do not call networks or databases.
+- Scoring and decision functions do not call networks, providers, or databases.
 - Scoring and decision functions do not read wall-clock time.
 - Decision IDs are deterministic for the same event, facts, score, and action.
 - Price is always an injected as-of fact.
@@ -53,3 +54,7 @@ database.
 When `DATABASE_URL` is configured for `gm-api`, startup applies migrations by
 default. `POST /decide` then stores the normalized event, rule traces, decision,
 and replay input snapshot. The domain crate remains database-free.
+
+Provider adapters live outside the domain. They normalize external market,
+filing, payment, event, entity, and broker surfaces into explicit inputs that
+can be reviewed, persisted, and replayed.

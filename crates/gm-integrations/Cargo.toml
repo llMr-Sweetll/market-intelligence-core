@@ -1,0 +1,16 @@
+[package]
+name = "gm-integrations"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+gm-domain = { path = "../gm-domain" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
