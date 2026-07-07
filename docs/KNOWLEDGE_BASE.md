@@ -6,25 +6,30 @@ trading decisions by itself.
 
 ## Core Entities
 
+The Rust domain crate defines the release entity types in
+`gm_domain::EntityType`:
+
 - company
 - instrument
-- exchange
 - country
-- region
 - regulator
-- policy body
-- sector
-- industry
+- disease classification
 - commodity
-- currency
+- sector
 - index
 - broker
 - source
-- disease or medical classification
+- exchange
+- region
+- policy body
 - conflict actor
 - political organization
+- currency
 
 ## Event Classes
+
+The Rust domain crate defines the release event classes in
+`gm_domain::EventClass`. The first release supports:
 
 ### Company Events
 
@@ -43,6 +48,8 @@ trading decisions by itself.
 
 ### Regulation and Policy
 
+- regulation
+- policy change
 - rate decision
 - tax policy
 - trade restriction
@@ -55,6 +62,9 @@ trading decisions by itself.
 
 ### Global Movements
 
+- global movement
+- political meeting
+- conflict
 - protests
 - strikes
 - migration pressure
@@ -67,6 +77,7 @@ trading decisions by itself.
 
 ### Medical and Health Classification
 
+- medical classification
 - ICD-11 classification references
 - public-health alerts
 - drug approvals or warnings
@@ -78,6 +89,8 @@ only to categorize events that may affect markets.
 
 ### Market Events
 
+- macro event
+- market event
 - price shock
 - volume shock
 - volatility regime shift
@@ -89,16 +102,20 @@ only to categorize events that may affect markets.
 
 ## Relationships
 
-Relationship examples:
+The Rust domain crate defines relationship types in
+`gm_domain::RelationshipType`:
 
 - company issues instrument
 - company belongs to sector
-- regulator governs market
+- instrument listed on index
+- regulator governs market or index
 - policy affects sector
 - conflict affects commodity
 - commodity affects company margin
-- medical classification affects public-health exposure
-- source reported event
+- medical classification affects sector
+- source reports event
+- broker provides paper execution
+- country hosts company
 - event corroborates event
 
 Each relationship should include:
@@ -110,6 +127,13 @@ Each relationship should include:
 - provenance URL or source ID
 - ingestion timestamp
 
+The release fixture graph is exposed through `gm_domain::mv_fixture_graph()`.
+It includes representative company, instrument, country, regulator, policy,
+medical classification, commodity, sector, index, broker, source, and conflict
+actor nodes. Relationships include market structure, policy-to-sector,
+conflict-to-commodity, commodity-to-margin, medical-classification-to-sector,
+source-reporting, paper-broker, and corroboration paths.
+
 ## Provenance
 
 Every fact needs enough provenance to answer:
@@ -119,6 +143,17 @@ Every fact needs enough provenance to answer:
 - what entity was resolved?
 - what confidence was assigned?
 - what changed since the previous version?
+
+The implemented `Provenance` shape is:
+
+- `source`
+- `source_id`
+- `url`
+- `observed_at`
+- `confidence`
+
+Tests enforce that fixture relationships carry non-empty identifiers,
+confidence in `(0, 1]`, an effective date, and a provenance URL.
 
 ## Release Data Sources
 
@@ -134,4 +169,3 @@ Candidate sources for `v0.1.0` and follow-up releases:
 - NSE/BSE public pages or approved providers for Indian corporate actions
 
 Live provider calls should enter through integration adapters, not domain math.
-

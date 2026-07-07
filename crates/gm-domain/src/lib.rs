@@ -3,6 +3,7 @@ pub mod event_study;
 pub mod features;
 pub mod indicators;
 pub mod model;
+pub mod ontology;
 pub mod risk;
 pub mod rules;
 pub mod scoring;
@@ -15,6 +16,10 @@ pub use features::{FeatureVector, compute_features};
 pub use model::{
     CandidateAction, DECISION_MODEL_VERSION, EventStudyEvidence, ModelReport, build_model_report,
     input_hash,
+};
+pub use ontology::{
+    EntityType, KnowledgeEntity, KnowledgeRelationship, OntologyFixture, Provenance,
+    RelationshipType, mv_entity_types, mv_event_classes, mv_fixture_graph, mv_relationship_types,
 };
 pub use rules::{RuleDefinition, RuleRegistry, RuleResult};
 pub use scoring::{AsOfFacts, DecisionInput, DecisionThresholds, decide, score_event};
