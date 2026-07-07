@@ -78,5 +78,10 @@ pub struct Decision {
     pub sector: Option<String>,
     pub thesis: String,
     pub reasons: serde_json::Value,
+    pub model_version: String,
+    pub input_hash: String,
+    pub expected_return: Option<f64>,
+    pub downside: Option<f64>,
+    pub explanation: serde_json::Value,
     pub execution_ready: bool,
 }

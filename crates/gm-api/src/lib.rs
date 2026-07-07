@@ -8,15 +8,15 @@ use axum::{
     routing::{get, post},
 };
 use gm_domain::{
-    AsOfFacts, DecisionInput, DecisionThresholds, MacroContext, NormalizedEvent, PriceBar,
-    RuleRegistry, build_macro_context, compute_features, decide, gbm_flow_prediction, score_event,
+    AsOfFacts, DECISION_MODEL_VERSION, DecisionInput, DecisionThresholds, MacroContext,
+    NormalizedEvent, PriceBar, RuleRegistry, build_macro_context, compute_features, decide,
+    gbm_flow_prediction, score_event,
 };
 use gm_persistence::PgStore;
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 const SERVICE_NAME: &str = "gm-api";
-const MODEL_VERSION: &str = "rules-impact-v1";
 
 #[derive(Debug, Clone)]
 pub struct ApiConfig {
@@ -167,7 +167,7 @@ async fn version() -> Json<VersionResponse> {
     Json(VersionResponse {
         service: SERVICE_NAME,
         version: env!("CARGO_PKG_VERSION"),
-        model_version: MODEL_VERSION,
+        model_version: DECISION_MODEL_VERSION,
     })
 }
 
@@ -243,7 +243,7 @@ async fn decide_route(
 
     if let Some(store) = state.store.as_ref() {
         store
-            .save_decision_audit(&input, &decision, MODEL_VERSION)
+            .save_decision_audit(&input, &decision, DECISION_MODEL_VERSION)
             .await
             .map_err(ApiError::persistence)?;
     }
@@ -404,12 +404,28 @@ async fn openapi() -> Json<serde_json::Value> {
                 },
                 "Decision": {
                     "type": "object",
-                    "required": ["decision_id", "action", "total_score", "confidence", "execution_ready"],
+                    "required": [
+                        "decision_id",
+                        "model_version",
+                        "input_hash",
+                        "action",
+                        "total_score",
+                        "confidence",
+                        "expected_return",
+                        "downside",
+                        "explanation",
+                        "execution_ready"
+                    ],
                     "properties": {
                         "decision_id": { "type": "string" },
+                        "model_version": { "type": "string" },
+                        "input_hash": { "type": "string" },
                         "action": { "type": "string", "enum": ["BUY", "SELL", "HOLD"] },
                         "total_score": { "type": "number" },
                         "confidence": { "type": "number" },
+                        "expected_return": { "type": ["number", "null"] },
+                        "downside": { "type": ["number", "null"] },
+                        "explanation": { "type": "object" },
                         "execution_ready": { "type": "boolean" }
                     }
                 }
@@ -518,7 +534,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(payload["service"], SERVICE_NAME);
         assert_eq!(payload["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(payload["model_version"], MODEL_VERSION);
+        assert_eq!(payload["model_version"], DECISION_MODEL_VERSION);
     }
 
     #[tokio::test]
@@ -544,5 +560,8 @@ mod tests {
         assert_eq!(payload["target_price"], 1030.0);
         assert_eq!(payload["stop_loss"], 980.0);
         assert_eq!(payload["total_score"], 0.72);
+        assert_eq!(payload["model_version"], DECISION_MODEL_VERSION);
+        assert!(payload["input_hash"].as_str().unwrap().len() > 20);
+        assert!(payload["explanation"]["utilities"].is_array());
     }
 }

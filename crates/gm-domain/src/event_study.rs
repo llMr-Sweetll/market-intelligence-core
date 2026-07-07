@@ -44,6 +44,10 @@ pub fn abnormal_return(
     Some(stock - index)
 }
 
+pub fn cumulative_abnormal_return(samples: &[f64]) -> f64 {
+    samples.iter().sum()
+}
+
 pub fn aggregate_car(samples: &[f64]) -> CarStats {
     if samples.is_empty() {
         return CarStats {
@@ -108,6 +112,12 @@ mod tests {
         let stats = aggregate_car(&[0.02, 0.04, -0.01]);
         assert_eq!(stats.n, 3);
         assert_eq!(stats.hit_rate, Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn computes_cumulative_abnormal_return() {
+        let car = cumulative_abnormal_return(&[0.02, -0.01, 0.03]);
+        assert!((car - 0.04).abs() < 1e-12);
     }
 
     #[test]

@@ -93,6 +93,11 @@ assert payload["entry_price"] == 1000.0, payload
 assert payload["target_price"] == 1030.0, payload
 assert payload["stop_loss"] == 980.0, payload
 assert payload["total_score"] == 0.72, payload
+assert payload["model_version"], payload
+assert payload["input_hash"], payload
+assert payload["expected_return"] is not None, payload
+assert payload["downside"] is not None, payload
+assert payload["explanation"]["pipeline"], payload
 PY
 
 echo "API smoke test passed against $BASE_URL"

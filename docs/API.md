@@ -34,6 +34,15 @@ If persistence is configured, a successful decision writes:
 If any configured persistence write fails, the endpoint returns `500` instead of
 returning an unaudited decision.
 
+Every decision response includes:
+
+- `model_version`
+- `input_hash`
+- `expected_return`
+- `downside`
+- structured `explanation` with pipeline, evidence, gates, utilities, and
+  missing facts
+
 ## Local Contract Check
 
 ```bash
