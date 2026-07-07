@@ -95,6 +95,15 @@ Content:
 - source reliability
 - duplicate and related-event hints
 
+Current release surface:
+
+- loads fixture-backed normalized event summaries from `/events`
+- filters by region, market, sector, event class, source, and severity
+- selects an event and loads `/events/{event_id}`
+- displays raw source metadata, normalized facts, entity mappings, source
+  reliability, severity, confidence, and mapping status
+- supports manual fixture review before live ingestion is enabled
+
 ### Decision Workbench
 
 Purpose: evaluate one event with explicit as-of facts.

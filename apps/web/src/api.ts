@@ -42,6 +42,56 @@ export type HealthResponse = {
   service: string
 }
 
+export type SourceReliability = {
+  tier: string
+  score: number
+  rationale: string
+}
+
+export type EventReviewSummary = {
+  event_id: string
+  version: number
+  headline: string
+  occurred_at: string
+  source: string | null
+  region: string | null
+  sector: string | null
+  symbol: string | null
+  event_class: string
+  confidence: number
+  severity: string
+  entity_mapping_status: string
+  source_reliability: SourceReliability
+}
+
+export type EventReviewDetail = {
+  summary: EventReviewSummary
+  event: NormalizedEvent
+  raw_source: {
+    provider: string
+    source_id: string
+    url: string | null
+    received_at: string
+    language: string
+    raw_headline: string
+  }
+  normalized_facts: {
+    event_type: string | null
+    symbol: string | null
+    sector: string | null
+    region: string | null
+    impact_level: string | null
+    impact_category: string | null
+  }
+  entity_mappings: Array<{
+    entity_id: string
+    entity_type: string
+    label: string
+    confidence: number
+  }>
+  source_reliability: SourceReliability
+}
+
 export type DecisionAction = 'BUY' | 'SELL' | 'HOLD'
 
 export type CandidateAction = DecisionAction | 'PAPER'
@@ -151,6 +201,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health')
+}
+
+export function fetchEvents(): Promise<EventReviewSummary[]> {
+  return request<EventReviewSummary[]>('/events')
+}
+
+export function fetchEvent(eventId: string): Promise<EventReviewDetail> {
+  return request<EventReviewDetail>(`/events/${encodeURIComponent(eventId)}`)
 }
 
 export function createDecision(payload: DecisionRequest): Promise<Decision> {

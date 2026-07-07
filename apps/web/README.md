@@ -9,6 +9,11 @@ confidence, expected return, downside, model version, replay hash, risk gates,
 evidence rows, utility estimates, input context, similar-event history, missing
 facts, and replay path.
 
+The Event Inbox reads fixture-backed normalized event summaries from `/events`,
+filters by region, market, sector, event class, source, and severity, and loads
+selected raw metadata, normalized facts, entity mappings, and source reliability
+from `/events/{event_id}`.
+
 ## Local Development
 
 Start the backend from the repository root:

@@ -9,6 +9,9 @@ decision path accepts explicit input facts and does not fetch data on its own.
 - `GET /ready` reports service readiness and optional PostgreSQL status.
 - `GET /version` returns the API version and current model version.
 - `GET /openapi.json` returns the OpenAPI 3.1 contract.
+- `GET /events` returns fixture-backed normalized event review summaries.
+- `GET /events/{event_id}` returns raw metadata, normalized facts, entity
+  mappings, and source reliability for one fixture event.
 
 When `DATABASE_URL` is unset, `/ready` still returns ready because persistence is
 optional for local domain and smoke-test workflows. When `DATABASE_URL` is set,
@@ -43,6 +46,28 @@ Every decision response includes:
 - structured `explanation` with pipeline, evidence, gates, utilities, and
   missing facts
 
+## Event Review Endpoints
+
+`GET /events` is the release fixture feed for the Event Inbox. Each summary
+includes:
+
+- event ID and version
+- headline and occurrence time
+- source, region, sector, symbol, and event class
+- confidence and severity
+- entity mapping status
+- source reliability score and tier
+
+`GET /events/{event_id}` returns the selected review context:
+
+- normalized event payload
+- raw source metadata
+- normalized facts
+- entity mappings with entity type and confidence
+- source reliability rationale
+
+These endpoints are fixture-backed until live ingestion is enabled.
+
 ## Local Contract Check
 
 ```bash
@@ -51,4 +76,5 @@ make smoke-api
 ```
 
 The smoke script checks `/health`, `/ready`, `/version`, `/openapi.json`, and the
-deterministic BUY fixture on `/decide`.
+deterministic BUY fixture on `/decide`. API unit tests also cover `/events` and
+`/events/{event_id}`.
