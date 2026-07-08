@@ -36,7 +36,8 @@ Required for all release tests. It should provide deterministic events, prices,
 filings, and payment webhook samples.
 
 Implemented fixtures cover market data, normalized events, filings, entity
-mapping, Razorpay-style test-mode checkout/webhook flow, and paper execution.
+mapping, Razorpay-style test-mode checkout signature verification, raw-body
+webhook verification, and paper execution.
 
 ### GDELT
 

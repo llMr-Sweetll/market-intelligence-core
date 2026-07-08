@@ -9,6 +9,8 @@ Date: TBD
 - Deterministic market event scoring and decision API.
 - Operator console with Event Inbox, Decision Workbench, Knowledge, Market
   Impact, Integrations, and Payments surfaces.
+- Razorpay-compatible test-mode order, checkout signature, and webhook
+  verification flow.
 - Source-available, noncommercial licensing.
 - Live broker order placement remains unavailable.
 
@@ -37,10 +39,10 @@ Date: TBD
 - Set `DATABASE_URL` to enable PostgreSQL persistence and startup migrations.
 - Production secrets must be provided through the runtime environment.
 - Razorpay and broker integrations remain in test, mock, read-only, or paper
-  modes unless explicitly configured outside this release.
+  modes.
 
 ## Known Limits
 
 - Live ingestion providers are represented by fixtures and adapters.
 - Live broker execution is blocked.
-- Payment flow is planned for test-mode verification before paid access gates.
+- Paid access gates and live billing are not enabled.

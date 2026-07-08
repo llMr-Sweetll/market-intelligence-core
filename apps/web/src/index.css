@@ -985,6 +985,18 @@ ol {
   grid-column: span 12;
 }
 
+.payment-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.payment-state {
+  margin-bottom: 14px;
+}
+
 .payment-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

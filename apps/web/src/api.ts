@@ -42,6 +42,83 @@ export type HealthResponse = {
   service: string
 }
 
+export type ProviderStatus = {
+  name: string
+  kind: string
+  mode: string
+  health: string
+  rate_limit: {
+    limit: number
+    remaining: number
+    reset_at: string | null
+  }
+  retry: {
+    max_attempts: number
+    attempts_used: number
+    backoff_ms: number
+  }
+  circuit_breaker: {
+    state: string
+    failure_count: number
+    opened_at: string | null
+  }
+  last_error: string | null
+}
+
+export type PaymentEvent = {
+  event_id: string
+  provider: string
+  event_type: string
+  provider_order_id: string | null
+  provider_payment_id: string | null
+  verified: boolean
+  received_at: string
+}
+
+export type PaymentState = {
+  provider: ProviderStatus
+  mode: string
+  live_billing_enabled: boolean
+  checkout_verification: string
+  webhook_verification: string
+  recent_events: PaymentEvent[]
+}
+
+export type PaymentOrderRequest = {
+  account_id: string
+  amount_paise: number
+  currency: string
+  description: string
+  success_url: string
+}
+
+export type PaymentOrder = {
+  provider: string
+  key_id: string
+  account_id: string
+  order_id: string
+  checkout_id: string
+  receipt: string
+  amount_paise: number
+  currency: string
+  status: string
+  test_payment_id: string
+  test_signature: string
+}
+
+export type PaymentVerificationRequest = {
+  order_id: string
+  payment_id: string
+  signature: string
+}
+
+export type PaymentVerification = {
+  provider: string
+  order_id: string
+  payment_id: string
+  verified: boolean
+}
+
 export type SourceReliability = {
   tier: string
   score: number
@@ -201,6 +278,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health')
+}
+
+export function fetchPaymentState(): Promise<PaymentState> {
+  return request<PaymentState>('/payments/state')
+}
+
+export function createPaymentOrder(payload: PaymentOrderRequest): Promise<PaymentOrder> {
+  return request<PaymentOrder>('/payments/orders', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function verifyPayment(payload: PaymentVerificationRequest): Promise<PaymentVerification> {
+  return request<PaymentVerification>('/payments/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function fetchEvents(): Promise<EventReviewSummary[]> {

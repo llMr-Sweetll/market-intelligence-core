@@ -3,8 +3,13 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use gm_domain::{Action, NormalizedEvent, PriceBar};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use thiserror::Error;
+use uuid::Uuid;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -162,28 +167,52 @@ pub struct CheckoutRequest {
     pub currency: String,
     pub description: String,
     pub success_url: String,
+    pub receipt: Option<String>,
+    pub notes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckoutSession {
     pub provider: String,
+    pub key_id: String,
+    pub account_id: String,
+    pub order_id: String,
     pub checkout_id: String,
+    pub receipt: String,
     pub amount_paise: u64,
     pub currency: String,
     pub status: String,
+    pub test_payment_id: String,
+    pub test_signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckoutVerificationRequest {
+    pub order_id: String,
+    pub payment_id: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckoutVerification {
+    pub provider: String,
+    pub order_id: String,
+    pub payment_id: String,
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebhookPayload {
-    pub event: String,
-    pub payment_id: String,
+    pub raw_body: String,
     pub signature: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebhookVerification {
     pub provider: String,
-    pub payment_id: String,
+    pub event: String,
+    pub order_id: Option<String>,
+    pub payment_id: Option<String>,
     pub verified: bool,
 }
 
@@ -285,6 +314,10 @@ pub trait PaymentProvider: Send + Sync {
         &self,
         request: CheckoutRequest,
     ) -> Result<CheckoutSession, ProviderError>;
+    async fn verify_checkout(
+        &self,
+        request: CheckoutVerificationRequest,
+    ) -> Result<CheckoutVerification, ProviderError>;
     async fn verify_webhook(
         &self,
         payload: WebhookPayload,
@@ -514,17 +547,39 @@ impl EntityMappingProvider for MockEntityMappingProvider {
 #[derive(Debug, Clone)]
 pub struct MockPaymentProvider {
     status: ProviderStatus,
+    key_id: String,
+    checkout_secret: String,
+    webhook_secret: String,
 }
 
 impl MockPaymentProvider {
     pub fn fixture() -> Self {
+        Self::test_mode(
+            "rzp_test_local",
+            "local_checkout_signing_key",
+            "local_webhook_signing_key",
+        )
+    }
+
+    pub fn test_mode(
+        key_id: impl Into<String>,
+        checkout_secret: impl Into<String>,
+        webhook_secret: impl Into<String>,
+    ) -> Self {
         Self {
             status: ProviderStatus::healthy(
-                "mock-razorpay",
+                "razorpay-test",
                 ProviderKind::Payment,
                 ProviderMode::TestMode,
             ),
+            key_id: key_id.into(),
+            checkout_secret: checkout_secret.into(),
+            webhook_secret: webhook_secret.into(),
         }
+    }
+
+    pub fn sign_test_webhook(&self, raw_body: &str) -> String {
+        razorpay_webhook_signature(raw_body, &self.webhook_secret)
     }
 }
 
@@ -543,13 +598,80 @@ impl PaymentProvider for MockPaymentProvider {
                 "amount must be greater than zero".to_string(),
             ));
         }
+        if request.currency.len() != 3
+            || !request
+                .currency
+                .chars()
+                .all(|value| value.is_ascii_uppercase())
+        {
+            return Err(ProviderError::InvalidRequest(
+                "currency must be a three-letter uppercase ISO code".to_string(),
+            ));
+        }
+
+        let receipt = request.receipt.unwrap_or_else(|| {
+            deterministic_short_id(
+                "mv",
+                &format!(
+                    "{}:{}:{}:{}",
+                    request.account_id, request.amount_paise, request.currency, request.description
+                ),
+            )
+        });
+        if receipt.len() > 40 {
+            return Err(ProviderError::InvalidRequest(
+                "receipt must be 40 characters or fewer".to_string(),
+            ));
+        }
+
+        let order_id = deterministic_short_id(
+            "order_test",
+            &format!(
+                "{}:{}:{}:{}",
+                request.account_id, request.amount_paise, request.currency, receipt
+            ),
+        );
+        let checkout_id = deterministic_short_id("checkout_test", &order_id);
+        let test_payment_id = deterministic_short_id("pay_test", &order_id);
+        let test_signature =
+            razorpay_checkout_signature(&order_id, &test_payment_id, &self.checkout_secret);
 
         Ok(CheckoutSession {
             provider: self.status.name.clone(),
-            checkout_id: format!("checkout_test_{}", request.account_id),
+            key_id: self.key_id.clone(),
+            account_id: request.account_id,
+            order_id,
+            checkout_id,
+            receipt,
             amount_paise: request.amount_paise,
             currency: request.currency,
             status: "created".to_string(),
+            test_payment_id,
+            test_signature,
+        })
+    }
+
+    async fn verify_checkout(
+        &self,
+        request: CheckoutVerificationRequest,
+    ) -> Result<CheckoutVerification, ProviderError> {
+        let verified = verify_razorpay_checkout_signature(
+            &request.order_id,
+            &request.payment_id,
+            &request.signature,
+            &self.checkout_secret,
+        );
+        if !verified {
+            return Err(ProviderError::VerificationFailed(
+                "checkout signature mismatch".to_string(),
+            ));
+        }
+
+        Ok(CheckoutVerification {
+            provider: self.status.name.clone(),
+            order_id: request.order_id,
+            payment_id: request.payment_id,
+            verified,
         })
     }
 
@@ -557,20 +679,89 @@ impl PaymentProvider for MockPaymentProvider {
         &self,
         payload: WebhookPayload,
     ) -> Result<WebhookVerification, ProviderError> {
-        let verified =
-            payload.signature == "test_signature" && payload.payment_id.starts_with("pay_test_");
+        let verified = verify_razorpay_webhook_signature(
+            &payload.raw_body,
+            &payload.signature,
+            &self.webhook_secret,
+        );
         if !verified {
             return Err(ProviderError::VerificationFailed(
-                "test signature mismatch".to_string(),
+                "webhook signature mismatch".to_string(),
             ));
         }
+        let body: serde_json::Value = serde_json::from_str(&payload.raw_body).map_err(|error| {
+            ProviderError::InvalidRequest(format!("invalid webhook json: {error}"))
+        })?;
+        let event = body
+            .get("event")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let payment_id = json_path_string(&body, &["payload", "payment", "entity", "id"]);
+        let order_id = json_path_string(&body, &["payload", "payment", "entity", "order_id"])
+            .or_else(|| json_path_string(&body, &["payload", "order", "entity", "id"]));
 
         Ok(WebhookVerification {
             provider: self.status.name.clone(),
-            payment_id: payload.payment_id,
+            event,
+            order_id,
+            payment_id,
             verified,
         })
     }
+}
+
+pub fn razorpay_checkout_signature(order_id: &str, payment_id: &str, secret: &str) -> String {
+    hmac_sha256_hex(secret, &format!("{order_id}|{payment_id}"))
+}
+
+pub fn verify_razorpay_checkout_signature(
+    order_id: &str,
+    payment_id: &str,
+    signature: &str,
+    secret: &str,
+) -> bool {
+    verify_hmac_sha256_hex(secret, &format!("{order_id}|{payment_id}"), signature)
+}
+
+pub fn verify_razorpay_webhook_signature(raw_body: &str, signature: &str, secret: &str) -> bool {
+    verify_hmac_sha256_hex(secret, raw_body, signature)
+}
+
+pub fn razorpay_webhook_signature(raw_body: &str, secret: &str) -> String {
+    hmac_sha256_hex(secret, raw_body)
+}
+
+fn hmac_sha256_hex(secret: &str, message: &str) -> String {
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(message.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn verify_hmac_sha256_hex(secret: &str, message: &str, signature: &str) -> bool {
+    let Ok(signature_bytes) = hex::decode(signature) else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(message.as_bytes());
+    mac.verify_slice(&signature_bytes).is_ok()
+}
+
+fn deterministic_short_id(prefix: &str, seed: &str) -> String {
+    let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes())
+        .simple()
+        .to_string();
+    format!("{prefix}_{}", &id[..18])
+}
+
+fn json_path_string(value: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(segment)?;
+    }
+    current.as_str().map(str::to_string)
 }
 
 #[derive(Debug, Clone)]
@@ -706,20 +897,97 @@ mod tests {
                 currency: "INR".to_string(),
                 description: "MV access".to_string(),
                 success_url: "https://example.test/success".to_string(),
+                receipt: None,
+                notes: BTreeMap::from([("plan".to_string(), "mv".to_string())]),
             })
             .await
             .unwrap();
+        let checkout_verification = provider
+            .verify_checkout(CheckoutVerificationRequest {
+                order_id: checkout.order_id.clone(),
+                payment_id: checkout.test_payment_id.clone(),
+                signature: checkout.test_signature.clone(),
+            })
+            .await
+            .unwrap();
+        let webhook_body = serde_json::json!({
+            "event": "payment.captured",
+            "payload": {
+                "payment": {
+                    "entity": {
+                        "id": checkout.test_payment_id,
+                        "order_id": checkout.order_id,
+                        "amount": checkout.amount_paise,
+                        "currency": checkout.currency,
+                        "captured": true
+                    }
+                }
+            }
+        })
+        .to_string();
+        let webhook_signature = provider.sign_test_webhook(&webhook_body);
         let verification = provider
             .verify_webhook(WebhookPayload {
-                event: "payment.captured".to_string(),
-                payment_id: "pay_test_1".to_string(),
-                signature: "test_signature".to_string(),
+                raw_body: webhook_body,
+                signature: webhook_signature,
             })
             .await
             .unwrap();
 
         assert_eq!(checkout.status, "created");
+        assert_eq!(checkout.key_id, "rzp_test_local");
+        assert!(checkout.order_id.starts_with("order_test_"));
+        assert!(checkout_verification.verified);
         assert!(verification.verified);
+        assert_eq!(verification.event, "payment.captured");
+        assert!(
+            verification
+                .payment_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with("pay_test_"))
+        );
+    }
+
+    #[tokio::test]
+    async fn payment_provider_rejects_invalid_signatures() {
+        let provider = MockPaymentProvider::fixture();
+        let checkout = provider
+            .create_checkout(CheckoutRequest {
+                account_id: "acct_1".to_string(),
+                amount_paise: 49900,
+                currency: "INR".to_string(),
+                description: "MV access".to_string(),
+                success_url: "https://example.test/success".to_string(),
+                receipt: None,
+                notes: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+
+        let checkout_error = provider
+            .verify_checkout(CheckoutVerificationRequest {
+                order_id: checkout.order_id,
+                payment_id: checkout.test_payment_id,
+                signature: "bad-signature".to_string(),
+            })
+            .await
+            .unwrap_err();
+        let webhook_error = provider
+            .verify_webhook(WebhookPayload {
+                raw_body: r#"{"event":"payment.captured"}"#.to_string(),
+                signature: "bad-signature".to_string(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            checkout_error,
+            ProviderError::VerificationFailed(_)
+        ));
+        assert!(matches!(
+            webhook_error,
+            ProviderError::VerificationFailed(_)
+        ));
     }
 
     #[tokio::test]

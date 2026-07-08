@@ -1,10 +1,10 @@
 # Payments
 
-Razorpay support starts in test mode for `v0.1.0`.
+Razorpay support is implemented in test mode for `v0.1.0`.
 
 ## Goals
 
-- create test-mode orders or subscriptions
+- create test-mode orders
 - verify checkout signatures server-side
 - verify webhooks using the raw request body
 - store payment event history
@@ -15,6 +15,7 @@ Razorpay support starts in test mode for `v0.1.0`.
 - live billing
 - payouts
 - refunds
+- subscriptions
 - entitlement enforcement for real customers
 - storing card, bank, or wallet details
 
@@ -26,17 +27,30 @@ Expected variables:
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=
 RAZORPAY_WEBHOOK_SECRET=
-RAZORPAY_MODE=test
 ```
 
 Only `RAZORPAY_KEY_ID` may be sent to the browser when needed by checkout.
 Secrets stay on the server.
 
+The local defaults are deterministic test fixtures. Production values must be
+provided through the runtime environment, not committed files.
+
+## API Endpoints
+
+- `GET /payments/state` returns provider health, test-mode status,
+  verification method names, and recent persisted payment events.
+- `POST /payments/orders` creates a deterministic test order using subunit
+  amounts.
+- `POST /payments/verify` verifies the checkout return signature using
+  HMAC-SHA256 over `order_id|payment_id`.
+- `POST /payments/webhooks/razorpay` verifies `X-Razorpay-Signature` using
+  HMAC-SHA256 over the raw request body.
+
 ## Flow
 
 ```text
 frontend requests checkout intent
-  -> API creates test order/subscription
+  -> API creates test order
   -> frontend opens checkout with public key ID
   -> frontend returns payment identifiers
   -> API verifies checkout signature
@@ -57,11 +71,11 @@ Initial events:
 
 ## Verification
 
-The payment PR must include:
+The implemented test-mode path is covered by:
 
 - signature verification tests
 - webhook fixture tests
-- redaction tests for logs
+- local API smoke test coverage
 - UI test-mode state
 - failed-signature path
-
+- Playwright coverage for the visible test payment flow

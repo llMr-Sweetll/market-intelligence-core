@@ -38,6 +38,11 @@ The smoke test verifies:
 - `GET /ready` returns readiness and persistence status.
 - `GET /version` returns service and model versions.
 - `GET /openapi.json` exposes the contract paths.
+- Payment state reports Razorpay test mode with live billing disabled.
+- Payment order creation returns a deterministic test order and checkout
+  signature fixture.
+- Checkout signature verification succeeds for the fixture and webhook
+  verification succeeds for a signed raw body.
 - `POST /decide` returns an executable BUY for a strong earnings event with an
   injected price.
 - Quantity, target, stop, and score are stable.
@@ -51,8 +56,9 @@ make web-e2e
 This starts the Rust API without persistence, starts the Vite app with
 `VITE_API_BASE_URL` pointed at that API, filters the Event Inbox fixture feed,
 checks selected event detail metadata, submits the Decision Workbench fixture,
-and checks that the evidence, risk gates, replay metadata, similar-event
-history, and missing-fact state render in Chromium.
+runs the visible payment test-mode verification flow, and checks that the
+evidence, risk gates, replay metadata, similar-event history, and missing-fact
+state render in Chromium.
 
 The browser suite also runs:
 
@@ -105,6 +111,8 @@ Current unit tests cover:
 - deterministic decision IDs
 - provider adapter fixtures for market data, events, filings, entity mapping,
   payments, and paper execution
+- payment API state, order, checkout verification, signed webhook, and
+  bad-signature contracts
 - Event Inbox API list/detail contracts and component filtering
 - Decision Workbench component and browser smoke coverage
 - primary-screen accessibility scan

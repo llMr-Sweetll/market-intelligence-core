@@ -18,6 +18,20 @@ struct Args {
     skip_migrations: bool,
     #[arg(long, env = "WEB_ASSETS_DIR")]
     web_assets: Option<PathBuf>,
+    #[arg(long, env = "RAZORPAY_KEY_ID", default_value = "rzp_test_local")]
+    razorpay_key_id: String,
+    #[arg(
+        long,
+        env = "RAZORPAY_KEY_SECRET",
+        default_value = "local_checkout_signing_key"
+    )]
+    razorpay_key_secret: String,
+    #[arg(
+        long,
+        env = "RAZORPAY_WEBHOOK_SECRET",
+        default_value = "local_webhook_signing_key"
+    )]
+    razorpay_webhook_secret: String,
 }
 
 #[tokio::main]
@@ -29,6 +43,9 @@ async fn main() -> anyhow::Result<()> {
         migrations: args.migrations,
         run_migrations: !args.skip_migrations,
         web_assets: args.web_assets,
+        payment_key_id: args.razorpay_key_id,
+        payment_checkout_secret: args.razorpay_key_secret,
+        payment_webhook_secret: args.razorpay_webhook_secret,
     })
     .await?;
 
