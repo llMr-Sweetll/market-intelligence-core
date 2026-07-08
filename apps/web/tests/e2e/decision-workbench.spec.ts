@@ -39,4 +39,5 @@ test('submits the decision fixture and renders the evidence audit trail', async 
   await expect(page.getByRole('heading', { name: 'Similar-event history' })).toBeVisible()
   await expect(page.getByText('Missing facts clear')).toBeVisible()
   await expect(page.getByText('PAPER', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Market response chart' })).toBeAttached()
 })

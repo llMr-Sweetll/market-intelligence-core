@@ -885,6 +885,17 @@ ol {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+.chart-accessible-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .knowledge-grid {
   display: grid;
   gap: 10px;
@@ -1026,6 +1037,7 @@ ol {
 }
 
 .status-chip.tone-blue {
+  color: #264c6d;
   background: #e8f2fb;
   border: 1px solid #b8d8f0;
 }
