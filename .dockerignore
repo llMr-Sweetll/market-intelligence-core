@@ -1,0 +1,16 @@
+.git
+.github
+target
+apps/web/dist
+apps/web/node_modules
+apps/web/test-results
+apps/web/playwright-report
+coverage
+lcov.info
+.env
+.env.local
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store

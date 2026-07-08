@@ -61,6 +61,24 @@ For PostgreSQL migration verification:
 make verify-postgres
 ```
 
+## Container
+
+Build the combined API and web image:
+
+```bash
+make docker-build
+```
+
+Run it locally without PostgreSQL persistence:
+
+```bash
+docker run --rm -p 8000:8000 market-intelligence-core:local
+```
+
+The image serves API routes and the built web app from the same process. Set
+`DATABASE_URL` to enable PostgreSQL persistence and `GM_MIGRATIONS` if the
+migration directory is mounted somewhere other than `/app/migrations`.
+
 ## API
 
 - `GET /health`
@@ -87,5 +105,6 @@ make verify-postgres
 - [Testing](docs/TESTING.md)
 - [Debugging](docs/DEBUGGING.md)
 - [Release Plan](docs/RELEASE_PLAN.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
 - [Public Readiness](docs/PUBLIC_READINESS.md)
 - [Roadmap](docs/ROADMAP.md)

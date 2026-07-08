@@ -16,6 +16,8 @@ struct Args {
     migrations: PathBuf,
     #[arg(long, env = "GM_SKIP_MIGRATIONS", default_value_t = false)]
     skip_migrations: bool,
+    #[arg(long, env = "WEB_ASSETS_DIR")]
+    web_assets: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -26,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
         database_url: args.database_url,
         migrations: args.migrations,
         run_migrations: !args.skip_migrations,
+        web_assets: args.web_assets,
     })
     .await?;
 
