@@ -2,8 +2,9 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -12,11 +13,18 @@ use gm_domain::{
     MacroContext, NormalizedEvent, PriceBar, RuleRegistry, build_macro_context, classify,
     compute_features, decide, gbm_flow_prediction, score_event,
 };
-use gm_persistence::PgStore;
+use gm_integrations::{
+    CheckoutRequest, CheckoutSession, CheckoutVerification, CheckoutVerificationRequest,
+    MockPaymentProvider, PaymentProvider, ProviderError, ProviderStatus, WebhookPayload,
+    WebhookVerification,
+};
+use gm_persistence::{PaymentEventRecord, PaymentOrderRecord, PgStore};
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
+use uuid::Uuid;
 
 const SERVICE_NAME: &str = "gm-api";
+const RAZORPAY_SIGNATURE_HEADER: &str = "x-razorpay-signature";
 
 #[derive(Debug, Clone)]
 pub struct ApiConfig {
@@ -24,6 +32,9 @@ pub struct ApiConfig {
     pub migrations: PathBuf,
     pub run_migrations: bool,
     pub web_assets: Option<PathBuf>,
+    pub payment_key_id: String,
+    pub payment_checkout_secret: String,
+    pub payment_webhook_secret: String,
 }
 
 impl Default for ApiConfig {
@@ -33,6 +44,9 @@ impl Default for ApiConfig {
             migrations: PathBuf::from("migrations"),
             run_migrations: true,
             web_assets: None,
+            payment_key_id: "rzp_test_local".to_string(),
+            payment_checkout_secret: "local_checkout_signing_key".to_string(),
+            payment_webhook_secret: "local_webhook_signing_key".to_string(),
         }
     }
 }
@@ -42,6 +56,7 @@ struct AppState {
     registry: Arc<RuleRegistry>,
     thresholds: DecisionThresholds,
     store: Option<PgStore>,
+    payment_provider: Arc<MockPaymentProvider>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,6 +177,49 @@ struct MacroContextRequest {
     inputs: gm_domain::MacroInputs,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct PaymentOrderRequest {
+    account_id: String,
+    amount_paise: u64,
+    currency: String,
+    description: String,
+    success_url: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct PaymentVerifyRequest {
+    order_id: String,
+    payment_id: String,
+    signature: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PaymentStateResponse {
+    provider: ProviderStatus,
+    mode: &'static str,
+    live_billing_enabled: bool,
+    checkout_verification: &'static str,
+    webhook_verification: &'static str,
+    recent_events: Vec<PaymentEventResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PaymentEventResponse {
+    event_id: String,
+    provider: String,
+    event_type: String,
+    provider_order_id: Option<String>,
+    provider_payment_id: Option<String>,
+    verified: bool,
+    received_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+struct PaymentWebhookResponse {
+    verification: WebhookVerification,
+    event: PaymentEventResponse,
+}
+
 #[derive(Debug)]
 struct ApiError {
     status: StatusCode,
@@ -180,6 +238,29 @@ impl ApiError {
         Self {
             status: StatusCode::NOT_FOUND,
             message: message.into(),
+        }
+    }
+
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
+    fn provider(error: ProviderError) -> Self {
+        let status = match error {
+            ProviderError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            ProviderError::VerificationFailed(_) | ProviderError::InvalidRequest(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            ProviderError::SymbolNotFound(_) | ProviderError::UnsupportedMode(_) => {
+                StatusCode::BAD_REQUEST
+            }
+        };
+        Self {
+            status,
+            message: error.to_string(),
         }
     }
 }
@@ -209,6 +290,11 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<Router> {
         registry: Arc::new(RuleRegistry::builtin()),
         thresholds: DecisionThresholds::default(),
         store,
+        payment_provider: Arc::new(MockPaymentProvider::test_mode(
+            config.payment_key_id,
+            config.payment_checkout_secret,
+            config.payment_webhook_secret,
+        )),
     };
 
     let router = Router::new()
@@ -224,6 +310,10 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<Router> {
         .route("/quant/features", post(features))
         .route("/predict/gbm", post(predict_gbm))
         .route("/macro/context", post(macro_context))
+        .route("/payments/state", get(payment_state))
+        .route("/payments/orders", post(create_payment_order))
+        .route("/payments/verify", post(verify_payment))
+        .route("/payments/webhooks/razorpay", post(razorpay_webhook))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -366,6 +456,192 @@ async fn predict_gbm(Json(request): Json<PredictionRequest>) -> Json<gm_domain::
 
 async fn macro_context(Json(request): Json<MacroContextRequest>) -> Json<MacroContext> {
     Json(build_macro_context(&request.sector, request.inputs))
+}
+
+async fn payment_state(
+    State(state): State<AppState>,
+) -> Result<Json<PaymentStateResponse>, ApiError> {
+    let recent_events = match state.store.as_ref() {
+        Some(store) => store
+            .recent_payment_events(10)
+            .await
+            .map_err(ApiError::persistence)?
+            .into_iter()
+            .map(payment_event_response)
+            .collect(),
+        None => Vec::new(),
+    };
+
+    Ok(Json(PaymentStateResponse {
+        provider: state.payment_provider.status().await,
+        mode: "TEST_MODE",
+        live_billing_enabled: false,
+        checkout_verification: "HMAC_SHA256_ORDER_ID_PAYMENT_ID",
+        webhook_verification: "HMAC_SHA256_RAW_BODY",
+        recent_events,
+    }))
+}
+
+async fn create_payment_order(
+    State(state): State<AppState>,
+    Json(request): Json<PaymentOrderRequest>,
+) -> Result<Json<CheckoutSession>, ApiError> {
+    let checkout = state
+        .payment_provider
+        .create_checkout(CheckoutRequest {
+            account_id: request.account_id,
+            amount_paise: request.amount_paise,
+            currency: request.currency,
+            description: request.description,
+            success_url: request.success_url,
+            receipt: None,
+            notes: std::collections::BTreeMap::from([(
+                "release".to_string(),
+                "v0.1.0-mv".to_string(),
+            )]),
+        })
+        .await
+        .map_err(ApiError::provider)?;
+
+    if let Some(store) = state.store.as_ref() {
+        let amount_paise = i64::try_from(checkout.amount_paise)
+            .map_err(|_| ApiError::bad_request("amount is too large"))?;
+        store
+            .save_payment_order(&PaymentOrderRecord {
+                provider_order_id: checkout.order_id.clone(),
+                provider: checkout.provider.clone(),
+                account_id: checkout.account_id.clone(),
+                receipt: checkout.receipt.clone(),
+                amount_paise,
+                currency: checkout.currency.clone(),
+                status: checkout.status.clone(),
+                test_mode: true,
+            })
+            .await
+            .map_err(ApiError::persistence)?;
+    }
+
+    Ok(Json(checkout))
+}
+
+async fn verify_payment(
+    State(state): State<AppState>,
+    Json(request): Json<PaymentVerifyRequest>,
+) -> Result<Json<CheckoutVerification>, ApiError> {
+    let verification = state
+        .payment_provider
+        .verify_checkout(CheckoutVerificationRequest {
+            order_id: request.order_id,
+            payment_id: request.payment_id,
+            signature: request.signature,
+        })
+        .await
+        .map_err(ApiError::provider)?;
+
+    let payload_json = serde_json::json!({
+        "source": "checkout_return",
+        "order_id": verification.order_id,
+        "payment_id": verification.payment_id,
+        "verified": verification.verified,
+    });
+    let event = payment_event_record(
+        &verification.provider,
+        "checkout.verified",
+        Some(verification.order_id.clone()),
+        Some(verification.payment_id.clone()),
+        verification.verified,
+        payload_json,
+    );
+    if let Some(store) = state.store.as_ref() {
+        store
+            .save_payment_event(&event)
+            .await
+            .map_err(ApiError::persistence)?;
+    }
+
+    Ok(Json(verification))
+}
+
+async fn razorpay_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<PaymentWebhookResponse>, ApiError> {
+    let signature = headers
+        .get(RAZORPAY_SIGNATURE_HEADER)
+        .ok_or_else(|| ApiError::bad_request("missing x-razorpay-signature header"))?
+        .to_str()
+        .map_err(|_| ApiError::bad_request("invalid x-razorpay-signature header"))?
+        .to_string();
+    let raw_body = String::from_utf8(body.to_vec())
+        .map_err(|_| ApiError::bad_request("webhook body must be utf-8 json"))?;
+    let payload_json: serde_json::Value = serde_json::from_str(&raw_body)
+        .map_err(|error| ApiError::bad_request(format!("invalid webhook json: {error}")))?;
+    let verification = state
+        .payment_provider
+        .verify_webhook(WebhookPayload {
+            raw_body,
+            signature,
+        })
+        .await
+        .map_err(ApiError::provider)?;
+    let event = payment_event_record(
+        &verification.provider,
+        &verification.event,
+        verification.order_id.clone(),
+        verification.payment_id.clone(),
+        verification.verified,
+        payload_json,
+    );
+
+    if let Some(store) = state.store.as_ref() {
+        store
+            .save_payment_event(&event)
+            .await
+            .map_err(ApiError::persistence)?;
+    }
+
+    Ok(Json(PaymentWebhookResponse {
+        verification,
+        event: payment_event_response(event),
+    }))
+}
+
+fn payment_event_record(
+    provider: &str,
+    event_type: &str,
+    provider_order_id: Option<String>,
+    provider_payment_id: Option<String>,
+    verified: bool,
+    payload_json: serde_json::Value,
+) -> PaymentEventRecord {
+    let seed = format!(
+        "{provider}:{event_type}:{}:{}",
+        provider_order_id.as_deref().unwrap_or("no-order"),
+        provider_payment_id.as_deref().unwrap_or("no-payment")
+    );
+    PaymentEventRecord {
+        event_id: Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes()).to_string(),
+        provider: provider.to_string(),
+        event_type: event_type.to_string(),
+        provider_order_id,
+        provider_payment_id,
+        verified,
+        payload_json,
+        received_at: chrono::Utc::now(),
+    }
+}
+
+fn payment_event_response(event: PaymentEventRecord) -> PaymentEventResponse {
+    PaymentEventResponse {
+        event_id: event.event_id,
+        provider: event.provider,
+        event_type: event.event_type,
+        provider_order_id: event.provider_order_id,
+        provider_payment_id: event.provider_payment_id,
+        verified: event.verified,
+        received_at: event.received_at,
+    }
 }
 
 fn event_review_fixtures() -> Vec<EventReviewDetail> {
@@ -796,6 +1072,41 @@ async fn openapi() -> Json<serde_json::Value> {
                         "200": { "description": "Macro context" }
                     }
                 }
+            },
+            "/payments/state": {
+                "get": {
+                    "summary": "Return Razorpay test-mode payment state and recent verified events",
+                    "responses": {
+                        "200": { "description": "Payment state" }
+                    }
+                }
+            },
+            "/payments/orders": {
+                "post": {
+                    "summary": "Create a deterministic Razorpay-compatible test-mode order",
+                    "responses": {
+                        "200": { "description": "Test-mode checkout session" },
+                        "400": { "description": "Invalid payment order request" }
+                    }
+                }
+            },
+            "/payments/verify": {
+                "post": {
+                    "summary": "Verify Razorpay checkout signature in test mode",
+                    "responses": {
+                        "200": { "description": "Checkout signature verified" },
+                        "400": { "description": "Checkout signature mismatch" }
+                    }
+                }
+            },
+            "/payments/webhooks/razorpay": {
+                "post": {
+                    "summary": "Verify Razorpay webhook signature from the raw request body",
+                    "responses": {
+                        "200": { "description": "Webhook signature verified and event accepted" },
+                        "400": { "description": "Webhook signature mismatch or invalid payload" }
+                    }
+                }
             }
         },
         "components": {
@@ -916,6 +1227,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
+    use gm_integrations::razorpay_webhook_signature;
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
@@ -949,6 +1261,27 @@ mod tests {
             .method("GET")
             .uri(uri)
             .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice(&bytes).unwrap();
+        (status, payload)
+    }
+
+    async fn raw_request(
+        app: Router,
+        method: &str,
+        uri: &str,
+        body: String,
+        signature: &str,
+    ) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header(RAZORPAY_SIGNATURE_HEADER, signature)
+            .body(Body::from(body))
             .unwrap();
         let response = app.oneshot(request).await.unwrap();
         let status = response.status();
@@ -1024,6 +1357,14 @@ mod tests {
         assert!(payload["paths"].get("/decide").is_some());
         assert!(payload["paths"].get("/events").is_some());
         assert!(payload["paths"].get("/events/{event_id}").is_some());
+        assert!(payload["paths"].get("/payments/state").is_some());
+        assert!(payload["paths"].get("/payments/orders").is_some());
+        assert!(payload["paths"].get("/payments/verify").is_some());
+        assert!(
+            payload["paths"]
+                .get("/payments/webhooks/razorpay")
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -1079,5 +1420,128 @@ mod tests {
         assert_eq!(payload["model_version"], DECISION_MODEL_VERSION);
         assert!(payload["input_hash"].as_str().unwrap().len() > 20);
         assert!(payload["explanation"]["utilities"].is_array());
+    }
+
+    #[tokio::test]
+    async fn payment_state_reports_test_mode() {
+        let (status, payload) = get_json(app().await, "/payments/state").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["mode"], "TEST_MODE");
+        assert_eq!(payload["live_billing_enabled"], false);
+        assert_eq!(payload["provider"]["name"], "razorpay-test");
+        assert_eq!(payload["provider"]["mode"], "TEST_MODE");
+        assert_eq!(
+            payload["checkout_verification"],
+            "HMAC_SHA256_ORDER_ID_PAYMENT_ID"
+        );
+        assert_eq!(payload["webhook_verification"], "HMAC_SHA256_RAW_BODY");
+    }
+
+    #[tokio::test]
+    async fn payment_order_and_checkout_signature_verify() {
+        let (order_status, order) = json_request(
+            app().await,
+            "POST",
+            "/payments/orders",
+            json!({
+                "account_id": "acct_release",
+                "amount_paise": 49900,
+                "currency": "INR",
+                "description": "MV access",
+                "success_url": "https://example.test/payments/success"
+            }),
+        )
+        .await;
+
+        assert_eq!(order_status, StatusCode::OK);
+        assert_eq!(order["provider"], "razorpay-test");
+        assert_eq!(order["key_id"], "rzp_test_local");
+        assert!(
+            order["order_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("order_test_")
+        );
+        assert!(
+            order["test_payment_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("pay_test_")
+        );
+
+        let (verify_status, verification) = json_request(
+            app().await,
+            "POST",
+            "/payments/verify",
+            json!({
+                "order_id": order["order_id"],
+                "payment_id": order["test_payment_id"],
+                "signature": order["test_signature"]
+            }),
+        )
+        .await;
+
+        assert_eq!(verify_status, StatusCode::OK);
+        assert_eq!(verification["verified"], true);
+        assert_eq!(verification["order_id"], order["order_id"]);
+        assert_eq!(verification["payment_id"], order["test_payment_id"]);
+    }
+
+    #[tokio::test]
+    async fn payment_checkout_rejects_bad_signature() {
+        let (status, payload) = json_request(
+            app().await,
+            "POST",
+            "/payments/verify",
+            json!({
+                "order_id": "order_test_bad",
+                "payment_id": "pay_test_bad",
+                "signature": "bad-signature"
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap()
+                .contains("signature mismatch")
+        );
+    }
+
+    #[tokio::test]
+    async fn razorpay_webhook_verifies_raw_body_signature() {
+        let body = serde_json::json!({
+            "event": "payment.captured",
+            "payload": {
+                "payment": {
+                    "entity": {
+                        "id": "pay_test_webhook",
+                        "order_id": "order_test_webhook",
+                        "amount": 49900,
+                        "currency": "INR",
+                        "captured": true
+                    }
+                }
+            }
+        })
+        .to_string();
+        let signature = razorpay_webhook_signature(&body, "local_webhook_signing_key");
+        let (status, payload) = raw_request(
+            app().await,
+            "POST",
+            "/payments/webhooks/razorpay",
+            body,
+            &signature,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["verification"]["verified"], true);
+        assert_eq!(payload["verification"]["event"], "payment.captured");
+        assert_eq!(payload["event"]["provider_payment_id"], "pay_test_webhook");
+        assert_eq!(payload["event"]["provider_order_id"], "order_test_webhook");
     }
 }

@@ -29,15 +29,21 @@ import { createChart, LineSeries, type LineData } from 'lightweight-charts'
 
 import {
   createDecision,
+  createPaymentOrder,
   fetchEvent,
   fetchEvents,
   fetchHealth,
+  fetchPaymentState,
   getApiBaseUrl,
+  verifyPayment,
   type Decision,
   type DecisionRequest,
   type EventReviewDetail,
   type EventReviewSummary,
   type HealthResponse,
+  type PaymentOrder,
+  type PaymentState,
+  type PaymentVerification,
 } from './api'
 import { earningsDecisionRequest, impactSeries } from './fixtures'
 
@@ -76,11 +82,16 @@ type IntegrationRow = {
   tone: StatusTone
 }
 
+type PaymentFlowResult = {
+  order: PaymentOrder
+  verification: PaymentVerification
+}
+
 const metrics: Metric[] = [
   { label: 'API status', value: 'Live check', detail: 'GET /health', tone: 'blue' },
   { label: 'Decision path', value: 'Deterministic', detail: 'No clock or random input', tone: 'green' },
   { label: 'Order mode', value: 'Disabled', detail: 'Read-only plus paper trading', tone: 'amber' },
-  { label: 'Payments', value: 'Test mode', detail: 'Webhook verification planned', tone: 'neutral' },
+  { label: 'Payments', value: 'Test mode', detail: 'Signed checkout and webhook verification', tone: 'blue' },
 ]
 
 const knowledgeRows: KnowledgeRow[] = [
@@ -102,7 +113,7 @@ const integrationRows: IntegrationRow[] = [
     label: 'Razorpay',
     status: 'Test mode',
     mode: 'Payments',
-    detail: 'Checkout and signed webhook verification before public release.',
+    detail: 'Checkout signatures and raw-body webhooks verified in test mode.',
     tone: 'blue',
   },
   {
@@ -145,6 +156,12 @@ function App() {
     retry: false,
   })
 
+  const paymentState = useQuery<PaymentState>({
+    queryKey: ['payments', 'state'],
+    queryFn: fetchPaymentState,
+    retry: false,
+  })
+
   const eventDetail = useQuery<EventReviewDetail>({
     queryKey: ['event', selectedEventId],
     queryFn: () => fetchEvent(selectedEventId ?? ''),
@@ -154,6 +171,28 @@ function App() {
 
   const decision = useMutation<Decision, Error, void>({
     mutationFn: () => createDecision(earningsDecisionRequest),
+  })
+
+  const paymentFlow = useMutation<PaymentFlowResult, Error, void>({
+    mutationFn: async () => {
+      const order = await createPaymentOrder({
+        account_id: 'acct_operator_mv',
+        amount_paise: 49900,
+        currency: 'INR',
+        description: 'MV access',
+        success_url: `${window.location.origin}/payments/success`,
+      })
+      const verification = await verifyPayment({
+        order_id: order.order_id,
+        payment_id: order.test_payment_id,
+        signature: order.test_signature,
+      })
+
+      return { order, verification }
+    },
+    onSuccess: () => {
+      void paymentState.refetch()
+    },
   })
 
   const apiState = useMemo(() => {
@@ -479,35 +518,119 @@ function App() {
           </div>
         </section>
 
-        <section className="panel payment-panel" aria-labelledby="payments-heading">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Payments</p>
-              <h3 id="payments-heading">Commercial gate plan</h3>
-            </div>
-            <CircleDollarSign size={22} aria-hidden="true" />
-          </div>
-
-          <div className="payment-grid">
-            <div>
-              <Banknote size={20} aria-hidden="true" />
-              <strong>Razorpay test mode</strong>
-              <span>Checkout, subscription state, and signed webhooks before billing is enabled.</span>
-            </div>
-            <div>
-              <CheckCircle2 size={20} aria-hidden="true" />
-              <strong>Access state</strong>
-              <span>Paid features can be gated without changing deterministic decision behavior.</span>
-            </div>
-            <div>
-              <ArrowUpRight size={20} aria-hidden="true" />
-              <strong>Release switch</strong>
-              <span>Production keys stay out of the repository and are verified through environment checks.</span>
-            </div>
-          </div>
-        </section>
+        <PaymentPanel
+          state={paymentState.data}
+          error={paymentState.error}
+          flowError={paymentFlow.error}
+          flowResult={paymentFlow.data}
+          isLoading={paymentState.isPending || paymentState.isFetching}
+          isRunning={paymentFlow.isPending}
+          onRun={() => paymentFlow.mutate()}
+        />
       </main>
     </div>
+  )
+}
+
+function PaymentPanel({
+  state,
+  error,
+  flowError,
+  flowResult,
+  isLoading,
+  isRunning,
+  onRun,
+}: {
+  state: PaymentState | undefined
+  error: Error | null
+  flowError: Error | null
+  flowResult: PaymentFlowResult | undefined
+  isLoading: boolean
+  isRunning: boolean
+  onRun: () => void
+}) {
+  const providerMode = state ? formatLabel(state.provider.mode) : 'Unknown'
+  const providerHealth = state ? formatLabel(state.provider.health) : 'Unknown'
+  const recentEventCount = state?.recent_events.length ?? 0
+  const flowStatus = flowResult?.verification.verified ? 'Verified' : 'Waiting'
+  const orderLabel = flowResult?.order.order_id ? shortHash(flowResult.order.order_id) : '-'
+  const paymentLabel = flowResult?.verification.payment_id
+    ? shortHash(flowResult.verification.payment_id)
+    : '-'
+
+  return (
+    <section className="panel payment-panel" aria-labelledby="payments-heading">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Payments</p>
+          <h3 id="payments-heading">Test-mode payment gate</h3>
+        </div>
+        <div className="payment-actions">
+          <span className={`status-chip tone-${state?.live_billing_enabled ? 'red' : 'blue'}`}>
+            {state?.live_billing_enabled ? 'Live billing' : 'Test mode'}
+          </span>
+          <button className="primary-button" type="button" onClick={onRun} disabled={isRunning}>
+            <CircleDollarSign size={17} aria-hidden="true" />
+            {isRunning ? 'Running' : 'Run test payment'}
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="payment-state error-state" role="alert">
+          <p className="eyebrow">Payments</p>
+          <h4>Payment API unavailable</h4>
+          <p>{error.message}</p>
+        </div>
+      ) : flowError ? (
+        <div className="payment-state error-state" role="alert">
+          <p className="eyebrow">Payments</p>
+          <h4>Payment check failed</h4>
+          <p>{flowError.message}</p>
+        </div>
+      ) : isLoading ? (
+        <div className="payment-state empty-state">
+          <p className="eyebrow">Payments</p>
+          <h4>Loading payment state</h4>
+          <p>Fetching provider mode and recent verification events.</p>
+        </div>
+      ) : null}
+
+      <div className="payment-grid">
+        <div>
+          <Banknote size={20} aria-hidden="true" />
+          <strong>{state?.provider.name ?? 'Razorpay test'}</strong>
+          <span>
+            {providerMode} · {providerHealth}
+          </span>
+        </div>
+        <div>
+          <CheckCircle2 size={20} aria-hidden="true" />
+          <strong>Checkout signature</strong>
+          <span>{state ? formatLabel(state.checkout_verification) : '-'}</span>
+        </div>
+        <div>
+          <ShieldCheck size={20} aria-hidden="true" />
+          <strong>Webhook signature</strong>
+          <span>{state ? formatLabel(state.webhook_verification) : '-'}</span>
+        </div>
+        <div>
+          <ArrowUpRight size={20} aria-hidden="true" />
+          <strong>{flowStatus}</strong>
+          <span>Order {orderLabel}</span>
+        </div>
+        <div>
+          <Fingerprint size={20} aria-hidden="true" />
+          <strong>Payment ID</strong>
+          <span>{paymentLabel}</span>
+        </div>
+        <div>
+          <Database size={20} aria-hidden="true" />
+          <strong>{recentEventCount} webhook events</strong>
+          <span>{state?.webhook_verification ? 'Raw body HMAC' : '-'}</span>
+        </div>
+      </div>
+    </section>
   )
 }
 

@@ -40,4 +40,8 @@ test('submits the decision fixture and renders the evidence audit trail', async 
   await expect(page.getByText('Missing facts clear')).toBeVisible()
   await expect(page.getByText('PAPER', { exact: true })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Market response chart' })).toBeAttached()
+
+  await page.getByRole('button', { name: /run test payment/i }).click()
+  await expect(page.getByText('Verified', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Order order_te/)).toBeVisible()
 })

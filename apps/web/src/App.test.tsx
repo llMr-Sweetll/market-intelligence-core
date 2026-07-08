@@ -220,6 +220,57 @@ const eventDetails = {
   },
 }
 
+const paymentStatePayload = {
+  provider: {
+    name: 'razorpay-test',
+    kind: 'PAYMENT',
+    mode: 'TEST_MODE',
+    health: 'HEALTHY',
+    rate_limit: {
+      limit: 1000,
+      remaining: 1000,
+      reset_at: null,
+    },
+    retry: {
+      max_attempts: 3,
+      attempts_used: 0,
+      backoff_ms: 250,
+    },
+    circuit_breaker: {
+      state: 'CLOSED',
+      failure_count: 0,
+      opened_at: null,
+    },
+    last_error: null,
+  },
+  mode: 'TEST_MODE',
+  live_billing_enabled: false,
+  checkout_verification: 'HMAC_SHA256_ORDER_ID_PAYMENT_ID',
+  webhook_verification: 'HMAC_SHA256_RAW_BODY',
+  recent_events: [],
+}
+
+const paymentOrderPayload = {
+  provider: 'razorpay-test',
+  key_id: 'rzp_test_local',
+  account_id: 'acct_operator_mv',
+  order_id: 'order_test_1234567890abcdef12',
+  checkout_id: 'checkout_test_1234567890abcdef12',
+  receipt: 'mv_1234567890abcdef12',
+  amount_paise: 49900,
+  currency: 'INR',
+  status: 'created',
+  test_payment_id: 'pay_test_1234567890abcdef12',
+  test_signature: 'abc123',
+}
+
+const paymentVerificationPayload = {
+  provider: 'razorpay-test',
+  order_id: paymentOrderPayload.order_id,
+  payment_id: paymentOrderPayload.test_payment_id,
+  verified: true,
+}
+
 function renderApp() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -247,6 +298,10 @@ function mockFetch(decisionPayload?: unknown) {
       return Response.json(eventSummaries)
     }
 
+    if (url.endsWith('/payments/state')) {
+      return Response.json(paymentStatePayload)
+    }
+
     if (url.includes('/events/')) {
       const eventId = decodeURIComponent(url.split('/events/')[1] ?? '')
       const detail = eventDetails[eventId as keyof typeof eventDetails]
@@ -259,6 +314,14 @@ function mockFetch(decisionPayload?: unknown) {
 
     if (url.endsWith('/decide')) {
       return Response.json(decisionPayload ?? defaultDecisionPayload)
+    }
+
+    if (url.endsWith('/payments/orders')) {
+      return Response.json(paymentOrderPayload)
+    }
+
+    if (url.endsWith('/payments/verify')) {
+      return Response.json(paymentVerificationPayload)
     }
 
     return new Response('not found', { status: 404 })
@@ -315,6 +378,27 @@ test('posts the smoke fixture and renders the backend decision', async () => {
   expect(screen.getByText('PAPER')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/decide',
+    expect.objectContaining({ method: 'POST' }),
+  )
+})
+
+test('runs the Razorpay test-mode payment verification flow', async () => {
+  const fetchMock = mockFetch()
+  renderApp()
+
+  expect(await screen.findByText('razorpay-test')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: /run test payment/i }))
+
+  expect(await screen.findByText('Verified')).toBeInTheDocument()
+  expect(screen.getByText('Order order_te...ef12')).toBeInTheDocument()
+  expect(screen.getByText('pay_test...ef12')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/payments/orders',
+    expect.objectContaining({ method: 'POST' }),
+  )
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/payments/verify',
     expect.objectContaining({ method: 'POST' }),
   )
 })

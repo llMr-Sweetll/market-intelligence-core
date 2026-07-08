@@ -1,11 +1,36 @@
 use std::path::Path;
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use gm_domain::{
     Decision, DecisionInput, NormalizedEvent, PriceBar, input_hash, scoring::ScoreOutput,
 };
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaymentOrderRecord {
+    pub provider_order_id: String,
+    pub provider: String,
+    pub account_id: String,
+    pub receipt: String,
+    pub amount_paise: i64,
+    pub currency: String,
+    pub status: String,
+    pub test_mode: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaymentEventRecord {
+    pub event_id: String,
+    pub provider: String,
+    pub event_type: String,
+    pub provider_order_id: Option<String>,
+    pub provider_payment_id: Option<String>,
+    pub verified: bool,
+    pub payload_json: serde_json::Value,
+    pub received_at: DateTime<Utc>,
+}
 
 #[derive(Clone)]
 pub struct PgStore {
@@ -268,5 +293,94 @@ impl PgStore {
         self.save_decision_input(input, decision, model_version)
             .await?;
         Ok(())
+    }
+
+    pub async fn save_payment_order(&self, order: &PaymentOrderRecord) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO payment_orders (
+                provider_order_id, provider, account_id, receipt, amount_paise,
+                currency, status, test_mode
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (provider_order_id) DO UPDATE
+            SET status = EXCLUDED.status
+            "#,
+        )
+        .bind(&order.provider_order_id)
+        .bind(&order.provider)
+        .bind(&order.account_id)
+        .bind(&order.receipt)
+        .bind(order.amount_paise)
+        .bind(&order.currency)
+        .bind(&order.status)
+        .bind(order.test_mode)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_payment_event(&self, event: &PaymentEventRecord) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO payment_events (
+                event_id, provider, event_type, provider_order_id,
+                provider_payment_id, verified, payload_json, received_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (event_id) DO NOTHING
+            "#,
+        )
+        .bind(&event.event_id)
+        .bind(&event.provider)
+        .bind(&event.event_type)
+        .bind(&event.provider_order_id)
+        .bind(&event.provider_payment_id)
+        .bind(event.verified)
+        .bind(&event.payload_json)
+        .bind(event.received_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn recent_payment_events(
+        &self,
+        limit: i64,
+    ) -> anyhow::Result<Vec<PaymentEventRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                event_id,
+                provider,
+                event_type,
+                provider_order_id,
+                provider_payment_id,
+                verified,
+                payload_json,
+                received_at
+            FROM payment_events
+            ORDER BY received_at DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(PaymentEventRecord {
+                    event_id: row.try_get("event_id")?,
+                    provider: row.try_get("provider")?,
+                    event_type: row.try_get("event_type")?,
+                    provider_order_id: row.try_get("provider_order_id")?,
+                    provider_payment_id: row.try_get("provider_payment_id")?,
+                    verified: row.try_get("verified")?,
+                    payload_json: row.try_get("payload_json")?,
+                    received_at: row.try_get("received_at")?,
+                })
+            })
+            .collect()
     }
 }

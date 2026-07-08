@@ -12,6 +12,11 @@ decision path accepts explicit input facts and does not fetch data on its own.
 - `GET /events` returns fixture-backed normalized event review summaries.
 - `GET /events/{event_id}` returns raw metadata, normalized facts, entity
   mappings, and source reliability for one fixture event.
+- `GET /payments/state` returns Razorpay test-mode state and recent verified
+  payment events.
+- `POST /payments/orders` creates a deterministic test-mode order.
+- `POST /payments/verify` verifies a checkout signature.
+- `POST /payments/webhooks/razorpay` verifies a signed raw webhook body.
 
 When `DATABASE_URL` is unset, `/ready` still returns ready because persistence is
 optional for local domain and smoke-test workflows. When `DATABASE_URL` is set,
@@ -68,6 +73,27 @@ includes:
 
 These endpoints are fixture-backed until live ingestion is enabled.
 
+## Payment Endpoints
+
+The payment endpoints are test-mode only. They do not enable live billing,
+refunds, payouts, subscriptions, or entitlement enforcement.
+
+`POST /payments/orders` accepts:
+
+- `account_id`
+- `amount_paise`
+- `currency`
+- `description`
+- `success_url`
+
+The response includes a public key ID, test order ID, test payment ID, and test
+signature fixture for local smoke workflows. `POST /payments/verify` validates
+the checkout signature using HMAC-SHA256 over `order_id|payment_id`.
+
+`POST /payments/webhooks/razorpay` requires `X-Razorpay-Signature` and validates
+the raw body with HMAC-SHA256 before accepting the event. If persistence is
+configured, order and verification events are stored in PostgreSQL.
+
 ## Local Contract Check
 
 ```bash
@@ -75,6 +101,7 @@ make run-api
 make smoke-api
 ```
 
-The smoke script checks `/health`, `/ready`, `/version`, `/openapi.json`, and the
-deterministic BUY fixture on `/decide`. API unit tests also cover `/events` and
-`/events/{event_id}`.
+The smoke script checks `/health`, `/ready`, `/version`, `/openapi.json`, the
+payment test-mode order and signature flow, signed webhook verification, and the
+deterministic BUY fixture on `/decide`. API unit tests also cover `/events`,
+`/events/{event_id}`, and payment bad-signature paths.

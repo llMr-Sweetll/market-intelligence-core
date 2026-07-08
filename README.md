@@ -91,6 +91,10 @@ migration directory is mounted somewhere other than `/app/migrations`.
 - `POST /quant/features`
 - `POST /predict/gbm`
 - `POST /macro/context`
+- `GET /payments/state`
+- `POST /payments/orders`
+- `POST /payments/verify`
+- `POST /payments/webhooks/razorpay`
 
 ## Documentation
 
