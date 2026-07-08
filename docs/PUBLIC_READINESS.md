@@ -14,13 +14,15 @@ The repository should stay public only while this checklist stays true on
 - [x] Issue templates exist.
 - [x] CODEOWNERS exists.
 - [x] Release plan exists.
-- [x] No credentials, tokens, account IDs, or secrets are present.
+- [x] No real credentials, tokens, account IDs, or secrets are present.
 - [x] No direct tool-attribution references are present in tracked files.
 - [x] No stale private-only wording remains.
-- [ ] CI passes.
+- [x] CI passes.
 - [x] API smoke test passes.
 - [x] Migration verification passes.
 - [x] API readiness endpoint and OpenAPI contract exist.
+- [x] Release checklist exists.
+- [x] Docker image build is covered by CI.
 
 ## Public Visibility Notes
 

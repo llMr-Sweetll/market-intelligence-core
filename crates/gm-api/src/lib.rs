@@ -14,7 +14,7 @@ use gm_domain::{
 };
 use gm_persistence::PgStore;
 use serde::{Deserialize, Serialize};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 
 const SERVICE_NAME: &str = "gm-api";
 
@@ -23,6 +23,7 @@ pub struct ApiConfig {
     pub database_url: Option<String>,
     pub migrations: PathBuf,
     pub run_migrations: bool,
+    pub web_assets: Option<PathBuf>,
 }
 
 impl Default for ApiConfig {
@@ -31,6 +32,7 @@ impl Default for ApiConfig {
             database_url: None,
             migrations: PathBuf::from("migrations"),
             run_migrations: true,
+            web_assets: None,
         }
     }
 }
@@ -209,7 +211,7 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<Router> {
         store,
     };
 
-    Ok(Router::new()
+    let router = Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/version", get(version))
@@ -224,7 +226,12 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<Router> {
         .route("/macro/context", post(macro_context))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        .with_state(state))
+        .with_state(state);
+
+    Ok(match config.web_assets {
+        Some(web_assets) => router.fallback_service(ServeDir::new(web_assets)),
+        None => router,
+    })
 }
 
 async fn health() -> Json<HealthResponse> {

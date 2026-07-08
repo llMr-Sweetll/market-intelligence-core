@@ -62,10 +62,11 @@ Before tagging `v0.1.0`:
 - API contract tests pass
 - Docker image builds
 - release notes are written
+- tag workflow creates a draft GitHub release artifact
+- the combined API and web container serves `/health` and `/`
 - live broker order placement remains disabled
 
 ## GitHub Issues
 
 The `v0.1.0-mv` milestone tracks implementation issues. Each PR should close or
 advance one small group of issues rather than mixing unrelated work.
-

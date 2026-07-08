@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Rust checks
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --all-features
+      - name: Web checks
+        run: |
+          npm ci
+          npm run check
+        working-directory: apps/web
+      - name: Build web assets
+        run: npm run build
+        working-directory: apps/web
+      - name: Build API binary
+        run: cargo build --locked --release -p gm-api
+      - name: Build Docker image
+        run: docker build -t market-intelligence-core:${{ github.ref_name }} .
+      - name: Package release artifact
+        run: |
+          mkdir -p dist/market-intelligence-core-${{ github.ref_name }}
+          cp target/release/gm-api dist/market-intelligence-core-${{ github.ref_name }}/
+          cp -R apps/web/dist dist/market-intelligence-core-${{ github.ref_name }}/web
+          cp -R migrations dist/market-intelligence-core-${{ github.ref_name }}/migrations
+          cp LICENSE README.md docs/RELEASE_NOTES.md docs/RELEASE_CHECKLIST.md dist/market-intelligence-core-${{ github.ref_name }}/
+          tar -C dist -czf market-intelligence-core-${{ github.ref_name }}-linux-x64.tar.gz market-intelligence-core-${{ github.ref_name }}
+      - uses: actions/upload-artifact@v5
+        with:
+          name: market-intelligence-core-${{ github.ref_name }}-linux-x64
+          path: market-intelligence-core-${{ github.ref_name }}-linux-x64.tar.gz
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: market-intelligence-core-${{ github.ref_name }}-linux-x64.tar.gz
+          body_path: docs/RELEASE_NOTES.md

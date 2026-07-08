@@ -1,10 +1,26 @@
 services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      GM_HOST: 0.0.0.0
+      GM_PORT: 8000
+      DATABASE_URL: postgres://${POSTGRES_USER:-gm}:${POSTGRES_PASSWORD:-gm}@postgres:5432/${POSTGRES_DB:-gm}
+      GM_MIGRATIONS: /app/migrations
+      WEB_ASSETS_DIR: /app/web
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: gm
-      POSTGRES_PASSWORD: gm
-      POSTGRES_DB: gm
+      POSTGRES_USER: ${POSTGRES_USER:-gm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gm}
+      POSTGRES_DB: ${POSTGRES_DB:-gm}
     ports:
       - "5432:5432"
     healthcheck:

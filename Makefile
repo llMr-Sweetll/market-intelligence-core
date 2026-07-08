@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test audit check web-install web-build web-test web-e2e web-check perf-check check-all run-api run-worker docker-up docker-down migrate smoke-api verify-postgres
+.PHONY: fmt fmt-check clippy test audit check web-install web-build web-test web-e2e web-check perf-check check-all run-api run-worker docker-build docker-up docker-down migrate smoke-api verify-postgres release-check
 
 fmt:
 	cargo fmt --all
@@ -50,6 +50,9 @@ docker-up:
 docker-down:
 	docker compose -f infra/docker-compose.yml down
 
+docker-build:
+	docker build -t market-intelligence-core:local .
+
 migrate:
 	cargo run -p gm-worker -- migrate --database-url $${DATABASE_URL:-postgres://gm:gm@localhost:5432/gm} --migrations migrations
 
@@ -58,3 +61,5 @@ smoke-api:
 
 verify-postgres:
 	scripts/verify_postgres.sh
+
+release-check: check-all web-e2e perf-check verify-postgres docker-build
