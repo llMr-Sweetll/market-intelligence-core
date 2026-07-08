@@ -54,6 +54,31 @@ checks selected event detail metadata, submits the Decision Workbench fixture,
 and checks that the evidence, risk gates, replay metadata, similar-event
 history, and missing-fact state render in Chromium.
 
+The browser suite also runs:
+
+- desktop and mobile projects for responsive coverage
+- primary-screen accessibility scan for WCAG 2.x A/AA serious and critical
+  violations
+- UI decision-flow p95 performance check; default budget:
+  `UI_DECISION_P95_MAX_MS=2500`
+
+## Performance Gates
+
+```bash
+make perf-check
+```
+
+This runs:
+
+- `cargo test -p gm-domain --test decision_perf --all-features`
+- `npm run test:e2e --prefix apps/web -- --grep p95`
+
+The Rust decision-path check measures score plus decision generation over a
+deterministic fixture. Default budget: `DECISION_P95_MAX_MICROS=25000`.
+
+The UI p95 check measures the `/decide` request and resulting DOM update through
+the browser workflow. Default budget: `UI_DECISION_P95_MAX_MS=2500`.
+
 ## PostgreSQL Migration Check
 
 ```bash
@@ -82,6 +107,8 @@ Current unit tests cover:
   payments, and paper execution
 - Event Inbox API list/detail contracts and component filtering
 - Decision Workbench component and browser smoke coverage
+- primary-screen accessibility scan
+- pure decision-path and UI decision-flow p95 performance gates
 
 ## What Still Needs Coverage
 

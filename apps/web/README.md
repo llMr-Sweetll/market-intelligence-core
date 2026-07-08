@@ -51,4 +51,5 @@ npm run test:e2e
 ```
 
 The Playwright config starts `gm-api` without persistence and points Vite at the
-temporary API port.
+temporary API port. The suite covers desktop and mobile layouts, Event Inbox,
+Decision Workbench, chart rendering, accessibility, and UI decision-flow p95.

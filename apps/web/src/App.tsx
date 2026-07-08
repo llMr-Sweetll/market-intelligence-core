@@ -1012,7 +1012,18 @@ function ImpactChart() {
     )
   }
 
-  return <div className="impact-chart" ref={containerRef} role="img" aria-label="Market response chart" />
+  return (
+    <>
+      <div
+        className="chart-accessible-summary"
+        role="img"
+        aria-label="Market response chart"
+      >
+        Event-study response curve with fixture data across seven market sessions.
+      </div>
+      <div className="impact-chart" ref={containerRef} />
+    </>
+  )
 }
 
 function formatCurrency(value: number | null): string {

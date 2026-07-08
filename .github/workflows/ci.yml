@@ -45,6 +45,6 @@ jobs:
       - name: Install browser
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
-      - name: Browser smoke
+      - name: Browser, accessibility, and performance smoke
         run: npm run test:e2e
         working-directory: apps/web
